@@ -6,10 +6,15 @@ import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Loader Screen Demo", layout="wide")
 
+# -----------------------------
+# Settings
+# -----------------------------
 TICK_SECONDS = 2
 st_autorefresh(interval=TICK_SECONDS * 1000, key="loader_refresh")
 
-# --- Parent-page CSS (metrics + banner spacing) ---
+# -----------------------------
+# Parent-page CSS (banner + left metrics)
+# -----------------------------
 st.markdown("""
 <style>
   .block-container { padding: 0.35rem 0.8rem !important; max-width: 100% !important; }
@@ -21,7 +26,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -----------------------------
-# Simulation
+# Simulation model
 # -----------------------------
 @dataclass
 class Pad:
@@ -54,6 +59,7 @@ def init_pads(n: int = 8):
         o = next_order(o)
     return pads
 
+# One sim per session (each viewer gets their own sim)
 if "pads" not in st.session_state:
     st.session_state.pads = init_pads(8)
     st.session_state.seed = random.randint(1, 10_000_000)
@@ -61,6 +67,9 @@ if "pads" not in st.session_state:
 
 pads = st.session_state.pads
 
+# -----------------------------
+# Step simulation
+# -----------------------------
 for p in pads:
     p.t = max(0, p.t - TICK_SECONDS)
 
@@ -73,6 +82,7 @@ for p in pads:
     elif p.phase == "LANDING" and p.t == 0:
         p.phase = "LOADING"
         p.t = LOADING
+        # Default "next action" when on ground is the next order to load
         p.action = str(next_order(p.order))
         p.fault = False
 
@@ -99,6 +109,9 @@ for p in pads:
         p.action = ""
         p.fault = False
 
+# -----------------------------
+# Banner logic (unchanged)
+# -----------------------------
 def severity(action: str) -> int:
     return {"Repress Pad": 1, "Change Cassette": 2, "Reboot Drone": 3, "Change Drone": 4}.get(action, 0)
 
@@ -143,7 +156,20 @@ def action_class(a: str) -> str:
         "Change Drone": "act-red",
     }.get(a, "act-none")
 
-# --- Inline CSS for the iframe (IMPORTANT: iframe does NOT inherit parent CSS) ---
+# Decide which row gets the thick black focus box (highest severity issue, if any)
+focus_pad = None
+best_focus = 0
+for p in pads:
+    s = severity(p.action)
+    if s > best_focus:
+        best_focus = s
+        focus_pad = p.pad
+if best_focus == 0:
+    focus_pad = None
+
+# -----------------------------
+# Table (rendered in iframe; include CSS inside iframe)
+# -----------------------------
 IFRAME_CSS = """
 <style>
   body { margin: 0; padding: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
@@ -163,6 +189,7 @@ IFRAME_CSS = """
     padding: 18px 16px;
     border-bottom: 1px solid #eef2f7;
     color: #111827;
+    vertical-align: middle;
   }
   table.grid tr:last-child td { border-bottom: none; }
 
@@ -177,22 +204,42 @@ IFRAME_CSS = """
   .act-orange { background: #fdba74; font-weight: 900; }
   .act-red { background: #f87171; color: #ffffff; font-weight: 900; }
 
+  /* RT highlight: orange badge when <= 10s to landing */
   .rt-warning { background:#fdba74; font-weight:900; padding:6px 10px; border-radius:8px; display:inline-block; }
+
   td.action-cell { border-left: 1px solid #eef2f7; }
+
+  /* Focus row: thick black rectangle + larger text */
+  tr.focus td {
+    font-size: 42px !important;
+    font-weight: 900 !important;
+    border-top: 6px solid #000 !important;
+    border-bottom: 6px solid #000 !important;
+  }
+  tr.focus td:first-child { border-left: 6px solid #000 !important; }
+  tr.focus td:last-child  { border-right: 6px solid #000 !important; }
 </style>
 """
 
 with right:
     rows_html = []
     for p in pads:
+        # No RT when craft is on the ground
         if p.phase in ("LANDING", "LOADING", "FIXING"):
             rt_display = ""
         else:
             rt_display = f"<span class='rt-warning'>{p.t}</span>" if p.t <= 10 else str(p.t)
 
         cls = action_class(p.action)
+        row_class = "focus" if (focus_pad is not None and p.pad == focus_pad) else ""
+
         rows_html.append(
-            f"<tr><td>{p.pad}</td><td>{p.order}</td><td>{rt_display}</td><td class='action-cell {cls}'>{p.action}</td></tr>"
+            f"<tr class='{row_class}'>"
+            f"<td>{p.pad}</td>"
+            f"<td>{p.order}</td>"
+            f"<td>{rt_display}</td>"
+            f"<td class='action-cell {cls}'>{p.action}</td>"
+            f"</tr>"
         )
 
     table_html = f"""
