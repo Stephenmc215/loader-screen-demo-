@@ -1,6 +1,7 @@
 import random
 from dataclasses import dataclass
 import streamlit as st
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Loader Wall Screen Demo", layout="wide")
 
@@ -9,167 +10,6 @@ st.set_page_config(page_title="Loader Wall Screen Demo", layout="wide")
 # -----------------------------
 TICK_SECONDS = 2
 REFRESH_MS = TICK_SECONDS * 1000
-
-st.markdown(f"""
-<script>
-  // Simple auto-refresh without extra packages
-  setTimeout(() => {{
-    window.parent.location.reload();
-  }}, {REFRESH_MS});
-</script>
-""", unsafe_allow_html=True)
-
-# -----------------------------
-# Styles (single-page; no iframe)
-# -----------------------------
-st.markdown("""
-<style>
-  .block-container { padding: 0.30rem 0.80rem !important; max-width: 100% !important; }
-  header, footer { visibility: hidden; height: 0; }
-
-  /* Top banner */
-  .topbar {
-    border-radius: 18px;
-    padding: 18px 22px;
-    text-align: center;
-    color: #ffffff;
-    font-weight: 900;
-    font-size: 52px;
-    margin-bottom: 14px;
-  }
-
-  /* Layout */
-  .wall {
-    display: grid;
-    grid-template-columns: 60% 40%;
-    gap: 18px;
-    align-items: stretch;
-  }
-
-  /* Left: Next action beacon */
-  .beacon {
-    border-radius: 18px;
-    border: 1px solid #e5e7eb;
-    padding: 22px 26px;
-    background: #ffffff;
-    height: calc(100vh - 140px);
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-  }
-  .beacon-title {
-    font-size: 34px;
-    font-weight: 900;
-    color: #111827;
-    letter-spacing: 0.02em;
-    margin-bottom: 18px;
-  }
-  .beacon-pad {
-    font-size: 140px;
-    font-weight: 1000;
-    line-height: 1.0;
-    margin: 0;
-  }
-  .beacon-sub {
-    font-size: 46px;
-    font-weight: 900;
-    margin-top: 10px;
-  }
-  .beacon-order {
-    margin-top: 18px;
-    font-size: 40px;
-    font-weight: 800;
-    color: #111827;
-  }
-  .beacon-order .emo { font-size: 38px; margin-right: 12px; }
-  .beacon-hint {
-    margin-top: 18px;
-    font-size: 28px;
-    color: #374151;
-    font-weight: 700;
-  }
-
-  /* Urgency colors for beacon */
-  .u-neutral { background: #ffffff; }
-  .u-amber { background: #fff7ed; }
-  .u-red { background: #fff1f2; }
-  .pulse {
-    animation: pulse 1.0s infinite;
-    border: 5px solid #b91c1c !important;
-  }
-  @keyframes pulse {
-    0% { box-shadow: 0 0 0 0 rgba(185, 28, 28, 0.55); }
-    70% { box-shadow: 0 0 0 18px rgba(185, 28, 28, 0.0); }
-    100% { box-shadow: 0 0 0 0 rgba(185, 28, 28, 0.0); }
-  }
-
-  /* Right: Status stack */
-  .stack {
-    height: calc(100vh - 140px);
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-  .section {
-    border-radius: 18px;
-    border: 1px solid #e5e7eb;
-    overflow: hidden;
-    background: #ffffff;
-  }
-  .section-h {
-    padding: 12px 16px;
-    font-size: 22px;
-    font-weight: 900;
-    letter-spacing: 0.02em;
-    border-bottom: 1px solid #eef2f7;
-  }
-  .h-critical { background: #fee2e2; color:#7f1d1d; }
-  .h-landing { background: #ffedd5; color:#7c2d12; }
-  .h-issues { background: #e0e7ff; color:#1e3a8a; }
-  .h-idle { background: #f3f4f6; color:#111827; }
-
-  .items { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
-  .item {
-    border-radius: 14px;
-    padding: 12px 14px;
-    border: 1px solid #eef2f7;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-  }
-  .item-left { display: flex; align-items: baseline; gap: 12px; }
-  .pad {
-    font-size: 34px;
-    font-weight: 1000;
-    color:#111827;
-    min-width: 42px;
-  }
-  .desc { font-size: 22px; font-weight: 800; color:#111827; }
-  .meta { font-size: 22px; font-weight: 900; color:#111827; }
-
-  .tag-red { background:#fecaca; border-color:#fca5a5; }
-  .tag-orange { background:#ffedd5; border-color:#fdba74; }
-  .tag-blue { background:#dbeafe; border-color:#93c5fd; }
-  .tag-gray { background:#f3f4f6; border-color:#e5e7eb; }
-
-  /* Footer metrics */
-  .footer {
-    margin-top: auto;
-    border-radius: 18px;
-    border: 1px solid #e5e7eb;
-    background:#ffffff;
-    padding: 14px 16px;
-    display: flex;
-    gap: 18px;
-    justify-content: space-between;
-    font-size: 22px;
-    font-weight: 900;
-    color:#111827;
-  }
-  .k { color:#6b7280; font-weight: 800; margin-right: 8px; }
-</style>
-""", unsafe_allow_html=True)
 
 # -----------------------------
 # Simulation model
@@ -209,6 +49,9 @@ def pick_storage() -> str:
 def storage_emoji(storage: str) -> str:
     return {"HEAT": "🔥", "SHELF": "📦", "FREEZER": "🧊"}.get(storage, "")
 
+def severity(action: str) -> int:
+    return {"Repress Pad": 1, "Change Cassette": 2, "Reboot Drone": 3, "Change Drone": 4}.get(action, 0)
+
 def init_pads(n: int = 8):
     pads = []
     o = 100
@@ -216,9 +59,6 @@ def init_pads(n: int = 8):
         pads.append(PadState(chr(65 + i), o, pick_storage(), "FLIGHT", random.randint(20, rand_flight()), "", False))
         o = next_order(o)
     return pads
-
-def severity(action: str) -> int:
-    return {"Repress Pad": 1, "Change Cassette": 2, "Reboot Drone": 3, "Change Drone": 4}.get(action, 0)
 
 # One sim per session (each viewer gets their own sim)
 if "pads" not in st.session_state:
@@ -270,10 +110,6 @@ for p in pads:
 
 # -----------------------------
 # Deterministic priority rules
-# 1) Imminent landing (<15s) wins
-# 2) Then highest-severity issue (Change Drone > Reboot > Change Cassette > Repress)
-# 3) Then next landing soon (<=30s)
-# 4) Else idle message
 # -----------------------------
 IMMINENT = 15
 LANDING_SOON = 30
@@ -285,7 +121,7 @@ issues = [p for p in pads if severity(p.action) > 0]
 critical = [p for p in issues if severity(p.action) >= 4]
 noncrit_issues = [p for p in issues if 0 < severity(p.action) < 4]
 
-# Top bar (keep your existing concept: only show high/critical, else RPP)
+# Top bar (interrupt only for HIGH/CRITICAL)
 best_issue = max(issues, key=lambda x: severity(x.action), default=None)
 if best_issue and severity(best_issue.action) >= 4:
     top_text = f"CRITICAL: {best_issue.action} (Pad {best_issue.pad})"
@@ -297,74 +133,70 @@ else:
     top_text = "RPP: 2 mins"
     top_bg = "#1f3a8a"
 
-st.markdown(f"<div class='topbar' style='background:{top_bg};'>{top_text}</div>", unsafe_allow_html=True)
-
-# Compute beacon (left 60%)
-beacon_mode = "idle"
-beacon_pad = None
-beacon_seconds = None
-beacon_title = "NEXT ACTION"
+# Left beacon
+beacon_pad = ""
+beacon_title = ""
 beacon_sub = ""
 beacon_order = ""
 beacon_hint = ""
 beacon_class = "u-neutral"
+pulse = False
 
 if imminent:
     p = min(imminent, key=lambda x: x.t)
-    beacon_mode = "landing"
-    beacon_pad = p.pad
-    beacon_seconds = p.t
     beacon_title = "GO TO PAD"
+    beacon_pad = p.pad
     beacon_sub = f"Landing in {p.t}s"
     beacon_order = f"{storage_emoji(p.storage)} {p.order}"
     beacon_hint = "Prepare to receive and load on landing"
     if p.t < 10:
-        beacon_class = "u-red pulse"
+        beacon_class = "u-red"
+        pulse = True
     elif p.t <= 30:
         beacon_class = "u-amber"
     else:
         beacon_class = "u-neutral"
-
 elif critical:
     p = max(critical, key=lambda x: severity(x.action))
-    beacon_mode = "critical"
-    beacon_pad = p.pad
     beacon_title = "ATTENTION REQUIRED"
-    beacon_sub = f"{p.action}"
+    beacon_pad = p.pad
+    beacon_sub = p.action
     beacon_order = f"{storage_emoji(p.storage)} {p.order}"
     beacon_hint = "Resolve issue during loading window"
     beacon_class = "u-red"
-
 elif noncrit_issues:
     p = max(noncrit_issues, key=lambda x: severity(x.action))
-    beacon_mode = "issue"
-    beacon_pad = p.pad
     beacon_title = "ATTENTION REQUIRED"
-    beacon_sub = f"{p.action}"
+    beacon_pad = p.pad
+    beacon_sub = p.action
     beacon_order = f"{storage_emoji(p.storage)} {p.order}"
     beacon_hint = "Resolve issue during loading window"
     beacon_class = "u-amber"
-
 elif landing_soon:
     p = min(landing_soon, key=lambda x: x.t)
-    beacon_mode = "landing_soon"
-    beacon_pad = p.pad
-    beacon_seconds = p.t
     beacon_title = "UP NEXT"
+    beacon_pad = p.pad
     beacon_sub = f"Landing in {p.t}s"
     beacon_order = f"{storage_emoji(p.storage)} {p.order}"
     beacon_hint = "Next arrival approaching"
     beacon_class = "u-neutral"
-
 else:
     beacon_title = "RPP"
+    beacon_pad = ""
     beacon_sub = "2 mins"
+    beacon_order = ""
     beacon_hint = "No urgent arrivals or issues"
     beacon_class = "u-neutral"
 
-# Right stack content
+# Right stack
 landing_blocks = sorted([p for p in pads if p.phase == "FLIGHT"], key=lambda x: x.t)
-idle_pads = [p for p in pads if severity(p.action) == 0 and not (p.phase == "FLIGHT" and p.t <= LANDING_SOON)]
+
+idle_pads = []
+for p in pads:
+    if severity(p.action) != 0:
+        continue
+    # exclude pads already shown in landing soon list
+    idle_pads.append(p)
 
 def item_html(p: PadState, label: str, meta: str, tag: str) -> str:
     return f"""
@@ -377,82 +209,157 @@ def item_html(p: PadState, label: str, meta: str, tag: str) -> str:
     </div>
     """
 
-critical_items = []
-for p in sorted(critical, key=lambda x: severity(x.action), reverse=True):
-    critical_items.append(item_html(p, p.action, f"{storage_emoji(p.storage)} {p.order}", "tag-red"))
+critical_items = "".join(
+    item_html(p, p.action, f"{storage_emoji(p.storage)} {p.order}", "tag-red")
+    for p in sorted(critical, key=lambda x: severity(x.action), reverse=True)
+) or '<div class="item tag-gray"><div class="desc">None</div></div>'
 
-issues_items = []
-for p in sorted(noncrit_issues, key=lambda x: severity(x.action), reverse=True):
-    issues_items.append(item_html(p, p.action, f"{storage_emoji(p.storage)} {p.order}", "tag-blue"))
+issues_items = "".join(
+    item_html(p, p.action, f"{storage_emoji(p.storage)} {p.order}", "tag-blue")
+    for p in sorted(noncrit_issues, key=lambda x: severity(x.action), reverse=True)
+) or '<div class="item tag-gray"><div class="desc">None</div></div>'
 
-landing_items = []
-for p in landing_blocks[:4]:
-    landing_items.append(item_html(p, "Landing", f"{p.t}s • {storage_emoji(p.storage)} {p.order}", "tag-orange"))
+landing_items = "".join(
+    item_html(p, "Landing", f"{p.t}s • {storage_emoji(p.storage)} {p.order}", "tag-orange")
+    for p in landing_blocks[:4]
+) or '<div class="item tag-gray"><div class="desc">None</div></div>'
 
-idle_items = []
-for p in sorted(idle_pads, key=lambda x: x.pad):
-    # Show phase when on ground as "At base"
-    if p.phase in ("LANDING", "LOADING", "FIXING"):
-        meta = "At base"
-    else:
-        meta = "In flight"
-    idle_items.append(item_html(p, "Idle", meta, "tag-gray"))
+idle_items = "".join(
+    item_html(p, "Idle", ("At base" if p.phase in ("LANDING","LOADING","FIXING") else "In flight"), "tag-gray")
+    for p in sorted(idle_pads, key=lambda x: x.pad)[:6]
+) or '<div class="item tag-gray"><div class="desc">None</div></div>'
 
-# Footer metrics
 at_base = sum(1 for p in pads if p.phase in ("LANDING", "LOADING", "FIXING"))
 arriving = sum(1 for p in pads if p.phase == "FLIGHT")
 cancelled = 0
 
-# Render wall
-beacon_pad_line = f"<div class='beacon-pad'>➡ {beacon_pad}</div>" if beacon_pad else ""
-beacon_order_line = f"<div class='beacon-order'><span class='emo'>{beacon_order.split(' ')[0]}</span>{' '.join(beacon_order.split(' ')[1:])}</div>" if beacon_order else ""
+# -----------------------------
+# Render with components.html (prevents raw HTML showing)
+# -----------------------------
+pulse_class = "pulse" if pulse else ""
+pad_line = f"<div class='beacon-pad'>➡ {beacon_pad}</div>" if beacon_pad else ""
+order_line = f"<div class='beacon-order'><span class='emo'>{beacon_order.split(' ')[0]}</span>{' '.join(beacon_order.split(' ')[1:])}</div>" if beacon_order else ""
 
-html = f"""
-<div class="wall">
-  <div class="beacon {beacon_class}">
-    <div class="beacon-title">{beacon_title}</div>
-    {beacon_pad_line}
-    <div class="beacon-sub">{beacon_sub}</div>
-    {beacon_order_line}
-    <div class="beacon-hint">{beacon_hint}</div>
+page = f"""
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta http-equiv="refresh" content="{REFRESH_MS/1000.0}">
+<style>
+  html, body {{ height: 100%; }}
+  body {{ margin: 0; padding: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:#ffffff; }}
+  .topbar {{
+    border-radius: 18px;
+    padding: 18px 22px;
+    text-align: center;
+    color: #ffffff;
+    font-weight: 900;
+    font-size: 52px;
+    margin: 6px 8px 14px 8px;
+    background: {top_bg};
+  }}
+  .wall {{
+    display: grid;
+    grid-template-columns: 60% 40%;
+    gap: 18px;
+    align-items: stretch;
+    padding: 0 8px 8px 8px;
+  }}
+  .beacon {{
+    border-radius: 18px;
+    border: 1px solid #e5e7eb;
+    padding: 22px 26px;
+    background: #ffffff;
+    height: calc(100vh - 140px);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }}
+  .beacon-title {{ font-size: 34px; font-weight: 900; color: #111827; letter-spacing: 0.02em; margin-bottom: 18px; }}
+  .beacon-pad {{ font-size: 140px; font-weight: 1000; line-height: 1.0; margin: 0; color:#111827; }}
+  .beacon-sub {{ font-size: 46px; font-weight: 900; margin-top: 10px; color:#111827; }}
+  .beacon-order {{ margin-top: 18px; font-size: 40px; font-weight: 800; color: #111827; }}
+  .beacon-order .emo {{ font-size: 38px; margin-right: 12px; }}
+  .beacon-hint {{ margin-top: 18px; font-size: 28px; color: #374151; font-weight: 700; }}
+
+  .u-neutral {{ background: #ffffff; }}
+  .u-amber {{ background: #fff7ed; }}
+  .u-red {{ background: #fff1f2; }}
+  .pulse {{ border: 5px solid #b91c1c !important; animation: pulse 1.0s infinite; }}
+  @keyframes pulse {{
+    0% {{ box-shadow: 0 0 0 0 rgba(185, 28, 28, 0.55); }}
+    70% {{ box-shadow: 0 0 0 18px rgba(185, 28, 28, 0.0); }}
+    100% {{ box-shadow: 0 0 0 0 rgba(185, 28, 28, 0.0); }}
+  }}
+
+  .stack {{ height: calc(100vh - 140px); display:flex; flex-direction:column; gap:14px; }}
+  .section {{ border-radius: 18px; border: 1px solid #e5e7eb; overflow:hidden; background:#ffffff; }}
+  .section-h {{ padding: 12px 16px; font-size: 22px; font-weight: 900; letter-spacing: 0.02em; border-bottom: 1px solid #eef2f7; }}
+  .h-critical {{ background: #fee2e2; color:#7f1d1d; }}
+  .h-landing {{ background: #ffedd5; color:#7c2d12; }}
+  .h-issues {{ background: #e0e7ff; color:#1e3a8a; }}
+  .h-idle {{ background: #f3f4f6; color:#111827; }}
+  .items {{ padding: 10px 12px; display:flex; flex-direction:column; gap:10px; }}
+
+  .item {{ border-radius:14px; padding:12px 14px; border:1px solid #eef2f7; display:flex; align-items:center; justify-content:space-between; gap:10px; }}
+  .item-left {{ display:flex; align-items:baseline; gap:12px; }}
+  .pad {{ font-size:34px; font-weight:1000; color:#111827; min-width:42px; }}
+  .desc {{ font-size:22px; font-weight:800; color:#111827; }}
+  .meta {{ font-size:22px; font-weight:900; color:#111827; }}
+
+  .tag-red {{ background:#fecaca; border-color:#fca5a5; }}
+  .tag-orange {{ background:#ffedd5; border-color:#fdba74; }}
+  .tag-blue {{ background:#dbeafe; border-color:#93c5fd; }}
+  .tag-gray {{ background:#f3f4f6; border-color:#e5e7eb; }}
+
+  .footer {{ margin-top:auto; border-radius:18px; border:1px solid #e5e7eb; background:#ffffff; padding:14px 16px; display:flex; gap:18px; justify-content:space-between; font-size:22px; font-weight:900; color:#111827; }}
+  .k {{ color:#6b7280; font-weight:800; margin-right:8px; }}
+</style>
+</head>
+<body>
+  <div class="topbar">{top_text}</div>
+
+  <div class="wall">
+    <div class="beacon {beacon_class} {pulse_class}">
+      <div class="beacon-title">{beacon_title}</div>
+      {pad_line}
+      <div class="beacon-sub">{beacon_sub}</div>
+      {order_line}
+      <div class="beacon-hint">{beacon_hint}</div>
+    </div>
+
+    <div class="stack">
+      <div class="section">
+        <div class="section-h h-critical">🔴 CRITICAL</div>
+        <div class="items">{critical_items}</div>
+      </div>
+
+      <div class="section">
+        <div class="section-h h-issues">⚠️ ATTENTION</div>
+        <div class="items">{issues_items}</div>
+      </div>
+
+      <div class="section">
+        <div class="section-h h-landing">🟠 LANDING SOON</div>
+        <div class="items">{landing_items}</div>
+      </div>
+
+      <div class="section">
+        <div class="section-h h-idle">⚪ IDLE</div>
+        <div class="items" style="max-height: 220px; overflow: hidden;">{idle_items}</div>
+      </div>
+
+      <div class="footer">
+        <div><span class="k">At Base</span>{at_base}</div>
+        <div><span class="k">Arriving</span>{arriving}</div>
+        <div><span class="k">Cancelled</span>{cancelled}</div>
+      </div>
+    </div>
   </div>
-
-  <div class="stack">
-    <div class="section">
-      <div class="section-h h-critical">🔴 CRITICAL</div>
-      <div class="items">
-        {''.join(critical_items) if critical_items else '<div class="item tag-gray"><div class="desc">None</div></div>'}
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-h h-issues">⚠️ ATTENTION</div>
-      <div class="items">
-        {''.join(issues_items) if issues_items else '<div class="item tag-gray"><div class="desc">None</div></div>'}
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-h h-landing">🟠 LANDING SOON</div>
-      <div class="items">
-        {''.join(landing_items) if landing_items else '<div class="item tag-gray"><div class="desc">None</div></div>'}
-      </div>
-    </div>
-
-    <div class="section">
-      <div class="section-h h-idle">⚪ IDLE</div>
-      <div class="items" style="max-height: 220px; overflow: hidden;">
-        {''.join(idle_items[:6]) if idle_items else '<div class="item tag-gray"><div class="desc">None</div></div>'}
-      </div>
-    </div>
-
-    <div class="footer">
-      <div><span class="k">At Base</span>{at_base}</div>
-      <div><span class="k">Arriving</span>{arriving}</div>
-      <div><span class="k">Cancelled</span>{cancelled}</div>
-    </div>
-  </div>
-</div>
+</body>
+</html>
 """
 
-st.markdown(html, unsafe_allow_html=True)
+# Make the component fill most of the page
+components.html(page, height=920, scrolling=False)
