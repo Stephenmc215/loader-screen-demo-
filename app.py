@@ -24,8 +24,8 @@ ORDER_STEP = 3
 # Timing (seconds)
 LOAD_SECONDS = 60
 FIX_EXTRA_SECONDS = 30          # extra time if an issue occurs while on-ground
-FLIGHT_MIN = 60
-FLIGHT_MAX = 150
+FLIGHT_MIN = 120
+FLIGHT_MAX = 300
 LANDING_MIN = 5
 LANDING_MAX = 60
 LANDING_SOON_THRESHOLD = 60     # "Landing ≤ 60s"
@@ -317,7 +317,7 @@ def _unused_build_right_sections_calm(pads: List[PadState]) -> str:
     summary_items = ""
     summary_items += item_html("✓", "summary", "At base", f"{at_base}")
     summary_items += item_html("⏳", "summary", "Landing", f"{len(landing_soon)}")
-    summary_items += item_html("✈", "summary", "In flight", f"{in_flight}")
+    summary_items += item_html("✈", "summary", "In flight", f"{cancelled}")
 
     next_items = ""
     if landing_soon:
@@ -628,7 +628,7 @@ right_html += f"""
 <div class="footer">
   <div><span class="k">At Base</span>{at_base}</div>
   <div><span class="k">Arriving Soon</span>{arriving}</div>
-  <div><span class="k">Cancelled</span>{in_flight}</div>
+  <div><span class="k">Cancelled</span>{cancelled}</div>
 </div>
 """
 
