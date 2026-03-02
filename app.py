@@ -598,14 +598,17 @@ else:
 
 # Footer counts (always present)
 at_base = sum(1 for p in pads if p.phase == "LOADING")
-arriving = sum(1 for p in pads if p.phase == "LANDING" and p.remaining <= LANDING_SOON_THRESHOLD)
-in_flight = sum(1 for p in pads if p.phase == "FLIGHT")
+arriving_soon = sum(
+    1 for p in pads
+    if p.phase == "LANDING" and p.remaining <= LANDING_SOON_THRESHOLD
+)
+cancelled = 0
 
 right_html += f"""
 <div class="footer">
   <div><span class="k">At Base</span>{at_base}</div>
-  <div><span class="k">Landing ≤60s</span>{arriving}</div>
-  <div><span class="k">In Flight</span>{in_flight}</div>
+  <div><span class="k">Arriving Soon</span>{arriving_soon}</div>
+  <div><span class="k">Cancelled</span>{cancelled}</div>
 </div>
 """
 
