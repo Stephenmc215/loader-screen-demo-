@@ -1,6 +1,6 @@
 import random
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 import streamlit as st
 import pandas as pd
 from streamlit_autorefresh import st_autorefresh
@@ -19,7 +19,6 @@ st.markdown(
       .section-title { font-size: 34px; font-weight: 900; margin-top: 6px; margin-bottom: 10px; }
       .small-muted { color:#6b7280; font-size: 1.05rem; }
       .stMetric { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 14px; padding: 14px 14px; }
-      /* Dataframe font sizes */
       div[data-testid="stDataFrame"] thead tr th { font-size: 18px !important; }
       div[data-testid="stDataFrame"] tbody tr td { font-size: 22px !important; }
     </style>
@@ -51,32 +50,42 @@ WEATHER_MESSAGES = [
 ]
 
 PHASE_LABEL = {
-    "GROUND": "On ground",
     "FLIGHT": "In flight",
     "LANDING": "Landing",
+    "LOADING": "Loading",
 }
+
+# Timing (seconds)
+FLIGHT_MIN_S = 120   # 2 minutes
+FLIGHT_MAX_S = 300   # 5 minutes
+LANDING_S = 10
+LOADING_S = 60       # ~1 minute on the ground to load
 
 @dataclass
 class PadState:
     pad: str
     order: int | None
-    phase: str  # GROUND/FLIGHT/LANDING
-    phase_t: int  # seconds remaining in phase
-    next_action: str  # may be blank or next order number str or action text
-    # internal flags
-    blocked: bool = False
+    phase: str          # FLIGHT/LANDING/LOADING
+    phase_t: int        # seconds remaining in phase
+    next_action: str    # blank, numeric next order, or action text
 
 def next_order(n: int) -> int:
-    # 100, 103, 106 ... 999 then wrap to 100
     n2 = n + 3
     return 100 if n2 > 999 else n2
+
+def rand_flight_time() -> int:
+    # random between 2 and 5 minutes
+    return random.randint(FLIGHT_MIN_S, FLIGHT_MAX_S)
 
 def init_sim(num_pads: int = 8) -> dict:
     pads = []
     start = 100
     for i in range(num_pads):
         pad_letter = chr(ord("A") + i)
-        pads.append(PadState(pad=pad_letter, order=start, phase="FLIGHT", phase_t=60, next_action=""))
+        # Stagger initial flight times so they don't all align
+        ft = rand_flight_time()
+        ft = random.randint(20, ft)  # start part-way through a flight
+        pads.append(PadState(pad=pad_letter, order=start, phase="FLIGHT", phase_t=ft, next_action=""))
         start = next_order(start)
     return {
         "pads": pads,
@@ -92,8 +101,6 @@ def ensure_state():
         random.seed(st.session_state.sim["rng_seed"])
 
 def maybe_fault_on_flight() -> str:
-    # Small chance per tick; tuned for “something happens sometimes” on demos.
-    # Tick=2s -> 30 ticks/min. 2% per minute ≈ 0.00068 per tick.
     r = random.random()
     if r < 0.0010:
         return "Change Drone"
@@ -118,50 +125,51 @@ def step_sim():
     pads: list[PadState] = sim["pads"]
 
     # Weather rotates only when there is no critical/high alert
-    sim["weather_i"] = (sim["weather_i"] + 1) % (len(WEATHER_MESSAGES) * 5)  # slow rotation
+    sim["weather_i"] = (sim["weather_i"] + 1) % (len(WEATHER_MESSAGES) * 6)
 
     for p in pads:
-        # countdown
         p.phase_t = max(0, p.phase_t - TICK_SECONDS)
 
-        # phase transitions
+        # Phase transitions
         if p.phase == "FLIGHT" and p.phase_t == 0:
             p.phase = "LANDING"
-            p.phase_t = 6  # landing window
+            p.phase_t = LANDING_S
         elif p.phase == "LANDING" and p.phase_t == 0:
-            # landed -> load next order, back to flight
+            p.phase = "LOADING"
+            p.phase_t = LOADING_S
+            # Show upcoming order id while loading sometimes
+            if p.order is not None:
+                p.next_action = str(next_order(p.order))
+        elif p.phase == "LOADING" and p.phase_t == 0:
+            # loaded -> increment order and take off for a new (random) flight duration
             if p.order is None:
                 p.order = 100
             p.order = next_order(p.order)
-            p.next_action = ""  # clear any old numeric/placeholder
+            p.next_action = ""  # clear numeric placeholder after loading completes
             p.phase = "FLIGHT"
-            p.phase_t = 60
+            p.phase_t = rand_flight_time()
 
-        # decide next action
-        # If next_action is a number (next order), keep it.
-        if p.next_action.isdigit():
+        # Keep numeric "next order" if currently loading/landing and already set
+        if p.next_action.isdigit() and p.phase in ("LANDING", "LOADING"):
             continue
 
-        # faults depend on phase
+        # Generate faults (more likely to be noticed while not flying)
         fault = ""
         if p.phase == "FLIGHT":
             fault = maybe_fault_on_flight()
         else:
             fault = maybe_fault_on_ground()
 
-        # Apply fault as next action text (or keep blank most of the time)
         p.next_action = fault
 
-        # Sometimes show “next order to load” while on ground/landing
-        if p.next_action == "" and p.phase in ("LANDING",) and random.random() < 0.15:
-            # show upcoming order id
+        # Sometimes show upcoming order id during landing/loading when no fault
+        if p.next_action == "" and p.phase in ("LANDING", "LOADING") and random.random() < 0.22:
             nxt = next_order(p.order or 100)
             p.next_action = str(nxt)
 
     sim["last_updated"] = "Just now"
 
 def compute_banner(pads: list[PadState]) -> tuple[str, str]:
-    # If any critical action exists, keep it on top bar.
     best = None
     for p in pads:
         a = p.next_action.strip()
@@ -176,9 +184,8 @@ def compute_banner(pads: list[PadState]) -> tuple[str, str]:
     if best and best["sev"] == 2:
         return (f"ATTN: {best['action']} (Pad {best['pad']})", "#1f3a8a")
 
-    # otherwise rotate weather
     sim = st.session_state.sim
-    msg = WEATHER_MESSAGES[(sim["weather_i"] // 5) % len(WEATHER_MESSAGES)]
+    msg = WEATHER_MESSAGES[(sim["weather_i"] // 6) % len(WEATHER_MESSAGES)]
     return (msg, "#1f3a8a")
 
 def style_table(df: pd.DataFrame, actions: list[str]) -> pd.io.formats.style.Styler:
@@ -186,7 +193,6 @@ def style_table(df: pd.DataFrame, actions: list[str]) -> pd.io.formats.style.Sty
         styles = pd.DataFrame("", index=dataframe.index, columns=dataframe.columns)
         for i, act in enumerate(actions):
             act = act.strip()
-            # Blank or numeric should not be highlighted
             if act == "" or act.isdigit():
                 continue
             s = ACTION_STYLES.get(act)
@@ -211,7 +217,7 @@ left, right = st.columns([1, 3.8], gap="large")
 with left:
     st.markdown("<div class='section-title'>Base Status</div>", unsafe_allow_html=True)
 
-    at_base = sum(1 for p in pads if p.phase != "FLIGHT")
+    at_base = sum(1 for p in pads if p.phase in ("LANDING", "LOADING"))
     arriving = sum(1 for p in pads if p.phase == "FLIGHT")
     cancelled = st.session_state.sim.get("cancelled", 0)
 
