@@ -6,13 +6,10 @@ from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="Loader Wall Screen Demo", layout="wide")
 
-# Rerun the script every N milliseconds (this is what makes seconds tick down)
+# Rerun to make seconds tick down
 TICK_SECONDS = 2
 st_autorefresh(interval=TICK_SECONDS * 1000, key="tick")
 
-# -----------------------------
-# Simulation model
-# -----------------------------
 @dataclass
 class PadState:
     pad: str
@@ -59,7 +56,7 @@ def init_pads(n: int = 8):
         o = next_order(o)
     return pads
 
-# Each viewer gets their own simulation state (normal on Streamlit)
+# One simulation per viewer/session
 if "pads" not in st.session_state:
     st.session_state.seed = random.randint(1, 10_000_000)
     random.seed(st.session_state.seed)
@@ -67,9 +64,7 @@ if "pads" not in st.session_state:
 
 pads = st.session_state.pads
 
-# -----------------------------
-# Step simulation
-# -----------------------------
+# ---- simulate one tick
 for p in pads:
     p.t = max(0, p.t - TICK_SECONDS)
 
@@ -80,23 +75,22 @@ for p in pads:
         p.fault = False
 
     elif p.phase == "LANDING" and p.t == 0:
-        # Craft has landed and is ready to be loaded with the NEXT order
+        # landed => load next order
         p.phase = "LOADING"
         p.t = LOADING
-        p.order = next_order(p.order)     # advance here so it's obvious it's working
+        p.order = next_order(p.order)
         p.storage = pick_storage()
         p.action = ""
         p.fault = False
 
     elif p.phase == "LOADING":
-        # Ground-only issues
+        # Issues can only happen on the ground
         if not p.fault and random.random() < 0.04:
             p.fault = True
             p.phase = "FIXING"
             p.t = FIXING
             p.action = random.choice(ISSUES)
 
-        # Finished loading with no fault => take off (same order continues in flight)
         if p.t == 0 and not p.fault:
             p.phase = "FLIGHT"
             p.t = rand_flight()
@@ -108,9 +102,7 @@ for p in pads:
         p.action = ""
         p.fault = False
 
-# -----------------------------
-# Priority rules / UI selection
-# -----------------------------
+# ---- priority / banner
 IMMINENT = 15
 LANDING_SOON = 30
 
@@ -120,7 +112,6 @@ landing_soon = [p for p in pads if p.phase == "FLIGHT" and p.t <= LANDING_SOON]
 issues = [p for p in pads if severity(p.action) > 0]
 critical = [p for p in issues if severity(p.action) >= 4]
 noncrit_issues = [p for p in issues if 0 < severity(p.action) < 4]
-
 loading_now = [p for p in pads if p.phase in ("LOADING", "FIXING")]
 
 best_issue = max(issues, key=lambda x: severity(x.action), default=None)
@@ -134,6 +125,7 @@ else:
     top_text = "RPP: 2 mins"
     top_bg = "#1f3a8a"
 
+# ---- beacon (left)
 beacon_title = "RPP"
 beacon_pad = ""
 beacon_sub = "2 mins"
@@ -152,7 +144,7 @@ if imminent:
     if p.t < 10:
         beacon_class = "u-red"
         pulse = True
-    elif p.t <= 30:
+    else:
         beacon_class = "u-amber"
 elif critical:
     p = max(critical, key=lambda x: severity(x.action))
@@ -195,32 +187,67 @@ def item_html(p: PadState, label: str, meta: str, tag: str) -> str:
       <div class="meta">{meta}</div>
     </div>"""
 
-loading_items = ""
-for p in sorted(loading_now, key=lambda x: x.t)[:4]:
-    label = "Fixing" if p.phase == "FIXING" else "Loading"
-    meta = f"{p.t}s • {storage_emoji(p.storage)} {p.order}"
-    loading_items += item_html(p, label, meta, "tag-amber")
+# Build right-side sections (mutually exclusive buckets to avoid duplicates)
+used: set[str] = set()
 
-critical_items = "".join(
-    item_html(p, p.action, f"{storage_emoji(p.storage)} {p.order}", "tag-red")
-    for p in sorted(critical, key=lambda x: severity(x.action), reverse=True)
+def take(ps, key=None, limit=4):
+    out = []
+    for p in (sorted(ps, key=key) if key else list(ps)):
+        if p.pad in used:
+            continue
+        used.add(p.pad)
+        out.append(p)
+        if len(out) >= limit:
+            break
+    return out
+
+# Priority buckets (one pad appears once, highest priority wins)
+critical_bucket = take(sorted(critical, key=lambda x: severity(x.action), reverse=True), limit=3)
+attention_bucket = take(sorted(noncrit_issues, key=lambda x: severity(x.action), reverse=True), limit=4)
+
+# If a pad is in attention/critical, don't also show it in LOADING NOW
+loading_bucket = take(sorted(loading_now, key=lambda x: x.t), limit=4)
+
+landing_bucket = take(sorted([p for p in pads if p.phase == "FLIGHT"], key=lambda x: x.t), limit=4)
+idle_bucket = [p for p in sorted(pads, key=lambda x: x.pad) if p.pad not in used][:4]
+
+def items_for(bucket, label_fn, meta_fn, tag):
+    return "".join(item_html(p, label_fn(p), meta_fn(p), tag) for p in bucket)
+
+critical_items = items_for(
+    critical_bucket,
+    lambda p: p.action,
+    lambda p: f"{storage_emoji(p.storage)} {p.order}",
+    "tag-red",
 )
 
-issues_items = "".join(
-    item_html(p, p.action, f"{storage_emoji(p.storage)} {p.order}", "tag-blue")
-    for p in sorted(noncrit_issues, key=lambda x: severity(x.action), reverse=True)
+issues_items = items_for(
+    attention_bucket,
+    lambda p: p.action,
+    lambda p: f"{storage_emoji(p.storage)} {p.order}",
+    "tag-blue",
 )
 
-landing_items = ""
-for p in sorted([p for p in pads if p.phase == "FLIGHT"], key=lambda x: x.t)[:3]:
-    landing_items += item_html(p, "Landing", f"{p.t}s • {storage_emoji(p.storage)} {p.order}", "tag-orange")
+loading_items = items_for(
+    loading_bucket,
+    lambda p: ("Fixing" if p.phase == "FIXING" else "Loading"),
+    lambda p: f"{p.t}s • {storage_emoji(p.storage)} {p.order}",
+    "tag-amber",
+)
 
-busy_pads = {p.pad for p in loading_now} | {p.pad for p in issues}
-idle_candidates = [p for p in pads if p.pad not in busy_pads]
-idle_items = ""
-for p in sorted(idle_candidates, key=lambda x: x.pad)[:3]:
-    meta = "In flight" if p.phase == "FLIGHT" else "At base"
-    idle_items += item_html(p, "Idle", meta, "tag-gray")
+landing_items = items_for(
+    landing_bucket,
+    lambda p: "Landing",
+    lambda p: f"{p.t}s • {storage_emoji(p.storage)} {p.order}",
+    "tag-orange",
+)
+
+idle_items = items_for(
+    idle_bucket,
+    lambda p: "Idle",
+    lambda p: ("In flight" if p.phase == "FLIGHT" else "At base"),
+    "tag-gray",
+)
 
 at_base = sum(1 for p in pads if p.phase in ("LANDING", "LOADING", "FIXING"))
 arriving = sum(1 for p in pads if p.phase == "FLIGHT")
@@ -270,6 +297,7 @@ page = f"""<!doctype html>
 <style>
   html, body {{ height: 100%; }}
   body {{ margin: 0; padding: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:#ffffff; }}
+
   .topbar {{
     border-radius: 18px;
     padding: 14px 18px;
@@ -280,20 +308,25 @@ page = f"""<!doctype html>
     margin: 6px 8px 12px 8px;
     background: {top_bg};
   }}
+
   .wall {{
     display: grid;
     grid-template-columns: 40% 60%;
     gap: 14px;
     align-items: stretch;
     padding: 0 8px 8px 8px;
+    height: calc(100vh - 98px);
+    box-sizing: border-box;
   }}
 
+  /* LEFT */
   .beacon {{
     border-radius: 18px;
     border: 1px solid #e5e7eb;
     padding: 18px 22px;
     background: #ffffff;
-    height: calc(100vh - 130px);
+    height: 100%;
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -315,7 +348,16 @@ page = f"""<!doctype html>
     100% {{ box-shadow: 0 0 0 0 rgba(185, 28, 28, 0.0); }}
   }}
 
-  .stack {{ height: calc(100vh - 130px); display:flex; flex-direction:column; gap:10px; }}
+  /* RIGHT */
+  .stack {{
+    height: 100%;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    overflow-y: auto;           /* prevents cut-off/jumble */
+    padding-right: 2px;
+    box-sizing: border-box;
+  }}
   .section {{ border-radius: 16px; border: 1px solid #e5e7eb; overflow:hidden; background:#ffffff; }}
   .section-h {{ padding: 10px 12px; font-size: 18px; font-weight: 900; letter-spacing: 0.02em; border-bottom: 1px solid #eef2f7; }}
   .h-critical {{ background: #fee2e2; color:#7f1d1d; }}
@@ -324,7 +366,14 @@ page = f"""<!doctype html>
   .h-loading {{ background: #fef9c3; color:#854d0e; }}
   .h-idle {{ background: #f3f4f6; color:#111827; }}
 
-  .items {{ padding: 8px 10px; display:flex; flex-direction:column; gap:8px; }}
+  .items {{
+    padding: 8px 10px;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    max-height: 230px;          /* keeps sections tidy */
+    overflow: hidden;
+  }}
   .item {{ border-radius: 12px; padding: 10px 12px; border: 1px solid #eef2f7; display:flex; align-items:center; justify-content:space-between; gap:10px; }}
   .item-left {{ display:flex; align-items:baseline; gap:10px; }}
   .pad {{ font-size: 30px; font-weight: 1000; color:#111827; min-width: 36px; }}
@@ -338,7 +387,6 @@ page = f"""<!doctype html>
   .tag-gray {{ background:#f3f4f6; border-color:#e5e7eb; }}
 
   .footer {{
-    margin-top: auto;
     border-radius: 16px;
     border: 1px solid #e5e7eb;
     background:#ffffff;
@@ -348,6 +396,7 @@ page = f"""<!doctype html>
     font-size: 24px;
     font-weight: 1000;
     color:#111827;
+    margin-top: 6px;
   }}
   .k {{ color:#6b7280; font-weight: 900; margin-right: 10px; }}
 </style>
@@ -377,4 +426,5 @@ page = f"""<!doctype html>
 </html>
 """
 
-components.html(page, height=920, scrolling=False)
+# Important: give the iframe enough height so nothing is cut off
+components.html(page, height=1100, scrolling=False)
