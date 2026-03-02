@@ -110,6 +110,12 @@ for p in pads:
 
 # -----------------------------
 # Deterministic priority rules
+# 1) Imminent landing (<15s) wins beacon
+# 2) Critical issue
+# 3) Loading now (least time remaining)
+# 4) Other issues
+# 5) Landing soon (<=30s)
+# 6) Idle message
 # -----------------------------
 IMMINENT = 15
 LANDING_SOON = 30
@@ -121,7 +127,9 @@ issues = [p for p in pads if severity(p.action) > 0]
 critical = [p for p in issues if severity(p.action) >= 4]
 noncrit_issues = [p for p in issues if 0 < severity(p.action) < 4]
 
-# Top bar (interrupt only for HIGH/CRITICAL)
+loading_now = [p for p in pads if p.phase in ("LOADING", "FIXING")]
+
+# Top bar (interrupt only for HIGH/CRITICAL; otherwise RPP)
 best_issue = max(issues, key=lambda x: severity(x.action), default=None)
 if best_issue and severity(best_issue.action) >= 4:
     top_text = f"CRITICAL: {best_issue.action} (Pad {best_issue.pad})"
@@ -133,12 +141,12 @@ else:
     top_text = "RPP: 2 mins"
     top_bg = "#1f3a8a"
 
-# Left beacon
+# Beacon selection
+beacon_title = "RPP"
 beacon_pad = ""
-beacon_title = ""
-beacon_sub = ""
+beacon_sub = "2 mins"
 beacon_order = ""
-beacon_hint = ""
+beacon_hint = "No urgent arrivals or issues"
 beacon_class = "u-neutral"
 pulse = False
 
@@ -162,15 +170,24 @@ elif critical:
     beacon_pad = p.pad
     beacon_sub = p.action
     beacon_order = f"{storage_emoji(p.storage)} {p.order}"
-    beacon_hint = "Resolve issue during loading window"
+    beacon_hint = "Resolve immediately while at base"
     beacon_class = "u-red"
+elif loading_now:
+    p = min(loading_now, key=lambda x: x.t)  # least time left is most urgent
+    beacon_title = "LOAD NOW"
+    beacon_pad = p.pad
+    nxt = p.action if p.action.isdigit() else ""
+    beacon_sub = f"Load {nxt}" if nxt else "Loading"
+    beacon_order = f"{storage_emoji(p.storage)} {p.order}"
+    beacon_hint = f"{p.t}s remaining on ground"
+    beacon_class = "u-amber"
 elif noncrit_issues:
     p = max(noncrit_issues, key=lambda x: severity(x.action))
     beacon_title = "ATTENTION REQUIRED"
     beacon_pad = p.pad
     beacon_sub = p.action
     beacon_order = f"{storage_emoji(p.storage)} {p.order}"
-    beacon_hint = "Resolve issue during loading window"
+    beacon_hint = "Resolve while at base"
     beacon_class = "u-amber"
 elif landing_soon:
     p = min(landing_soon, key=lambda x: x.t)
@@ -180,23 +197,6 @@ elif landing_soon:
     beacon_order = f"{storage_emoji(p.storage)} {p.order}"
     beacon_hint = "Next arrival approaching"
     beacon_class = "u-neutral"
-else:
-    beacon_title = "RPP"
-    beacon_pad = ""
-    beacon_sub = "2 mins"
-    beacon_order = ""
-    beacon_hint = "No urgent arrivals or issues"
-    beacon_class = "u-neutral"
-
-# Right stack
-landing_blocks = sorted([p for p in pads if p.phase == "FLIGHT"], key=lambda x: x.t)
-
-idle_pads = []
-for p in pads:
-    if severity(p.action) != 0:
-        continue
-    # exclude pads already shown in landing soon list
-    idle_pads.append(p)
 
 def item_html(p: PadState, label: str, meta: str, tag: str) -> str:
     return f"""
@@ -209,36 +209,92 @@ def item_html(p: PadState, label: str, meta: str, tag: str) -> str:
     </div>
     """
 
+# LOADING NOW list (show next order number + timer)
+loading_items = ""
+if loading_now:
+    for p in sorted(loading_now, key=lambda x: x.t)[:4]:
+        nxt = p.action if p.action.isdigit() else ""
+        label = "Fixing" if p.phase == "FIXING" else "Load"
+        if label == "Load" and nxt:
+            label = f"Load {nxt}"
+        meta = f"{p.t}s • {storage_emoji(p.storage)} {p.order}"
+        loading_items += item_html(p, label, meta, "tag-amber")
+
 critical_items = "".join(
     item_html(p, p.action, f"{storage_emoji(p.storage)} {p.order}", "tag-red")
     for p in sorted(critical, key=lambda x: severity(x.action), reverse=True)
-) or '<div class="item tag-gray"><div class="desc">None</div></div>'
+)
 
 issues_items = "".join(
     item_html(p, p.action, f"{storage_emoji(p.storage)} {p.order}", "tag-blue")
     for p in sorted(noncrit_issues, key=lambda x: severity(x.action), reverse=True)
-) or '<div class="item tag-gray"><div class="desc">None</div></div>'
+)
 
-landing_items = "".join(
-    item_html(p, "Landing", f"{p.t}s • {storage_emoji(p.storage)} {p.order}", "tag-orange")
-    for p in landing_blocks[:4]
-) or '<div class="item tag-gray"><div class="desc">None</div></div>'
+landing_items = ""
+for p in sorted([p for p in pads if p.phase == "FLIGHT"], key=lambda x: x.t)[:3]:
+    landing_items += item_html(p, "Landing", f"{p.t}s • {storage_emoji(p.storage)} {p.order}", "tag-orange")
 
-idle_items = "".join(
-    item_html(p, "Idle", ("At base" if p.phase in ("LANDING","LOADING","FIXING") else "In flight"), "tag-gray")
-    for p in sorted(idle_pads, key=lambda x: x.pad)[:6]
-) or '<div class="item tag-gray"><div class="desc">None</div></div>'
+busy_pads = {p.pad for p in loading_now} | {p.pad for p in issues}
+idle_candidates = [p for p in pads if p.pad not in busy_pads]
+idle_items = ""
+for p in sorted(idle_candidates, key=lambda x: x.pad)[:3]:
+    meta = "In flight" if p.phase == "FLIGHT" else "At base"
+    idle_items += item_html(p, "Idle", meta, "tag-gray")
 
 at_base = sum(1 for p in pads if p.phase in ("LANDING", "LOADING", "FIXING"))
 arriving = sum(1 for p in pads if p.phase == "FLIGHT")
 cancelled = 0
 
-# -----------------------------
-# Render with components.html (prevents raw HTML showing)
-# -----------------------------
+# Sections: hide empties
+sections_html = ""
+if critical_items:
+    sections_html += f"""
+    <div class="section">
+      <div class="section-h h-critical">🔴 CRITICAL</div>
+      <div class="items">{critical_items}</div>
+    </div>
+    """
+
+if issues_items:
+    sections_html += f"""
+    <div class="section">
+      <div class="section-h h-issues">⚠️ ATTENTION</div>
+      <div class="items">{issues_items}</div>
+    </div>
+    """
+
+if loading_items:
+    sections_html += f"""
+    <div class="section">
+      <div class="section-h h-loading">🟡 LOADING NOW</div>
+      <div class="items">{loading_items}</div>
+    </div>
+    """
+
+# Landing soon always shown
+sections_html += f"""
+<div class="section">
+  <div class="section-h h-landing">🟠 LANDING SOON</div>
+  <div class="items">{landing_items}</div>
+</div>
+"""
+
+if idle_items:
+    sections_html += f"""
+    <div class="section">
+      <div class="section-h h-idle">⚪ IDLE</div>
+      <div class="items">{idle_items}</div>
+    </div>
+    """
+
 pulse_class = "pulse" if pulse else ""
 pad_line = f"<div class='beacon-pad'>➡ {beacon_pad}</div>" if beacon_pad else ""
-order_line = f"<div class='beacon-order'><span class='emo'>{beacon_order.split(' ')[0]}</span>{' '.join(beacon_order.split(' ')[1:])}</div>" if beacon_order else ""
+order_line = ""
+if beacon_order:
+    parts = beacon_order.split(" ", 1)
+    emo = parts[0]
+    rest = parts[1] if len(parts) > 1 else ""
+    order_line = f"<div class='beacon-order'><span class='emo'>{emo}</span>{rest}</div>"
 
 page = f"""
 <!doctype html>
@@ -251,37 +307,38 @@ page = f"""
   body {{ margin: 0; padding: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:#ffffff; }}
   .topbar {{
     border-radius: 18px;
-    padding: 18px 22px;
+    padding: 14px 18px;
     text-align: center;
     color: #ffffff;
     font-weight: 900;
-    font-size: 52px;
-    margin: 6px 8px 14px 8px;
+    font-size: 46px;
+    margin: 6px 8px 12px 8px;
     background: {top_bg};
   }}
   .wall {{
     display: grid;
     grid-template-columns: 60% 40%;
-    gap: 18px;
+    gap: 14px;
     align-items: stretch;
     padding: 0 8px 8px 8px;
   }}
+
   .beacon {{
     border-radius: 18px;
     border: 1px solid #e5e7eb;
-    padding: 22px 26px;
+    padding: 18px 22px;
     background: #ffffff;
-    height: calc(100vh - 140px);
+    height: calc(100vh - 130px);
     display: flex;
     flex-direction: column;
     justify-content: center;
   }}
-  .beacon-title {{ font-size: 34px; font-weight: 900; color: #111827; letter-spacing: 0.02em; margin-bottom: 18px; }}
-  .beacon-pad {{ font-size: 140px; font-weight: 1000; line-height: 1.0; margin: 0; color:#111827; }}
-  .beacon-sub {{ font-size: 46px; font-weight: 900; margin-top: 10px; color:#111827; }}
-  .beacon-order {{ margin-top: 18px; font-size: 40px; font-weight: 800; color: #111827; }}
+  .beacon-title {{ font-size: 30px; font-weight: 900; color: #111827; letter-spacing: 0.02em; margin-bottom: 14px; }}
+  .beacon-pad {{ font-size: 150px; font-weight: 1000; line-height: 1.0; margin: 0; color:#111827; }}
+  .beacon-sub {{ font-size: 48px; font-weight: 900; margin-top: 8px; color:#111827; }}
+  .beacon-order {{ margin-top: 12px; font-size: 40px; font-weight: 800; color: #111827; }}
   .beacon-order .emo {{ font-size: 38px; margin-right: 12px; }}
-  .beacon-hint {{ margin-top: 18px; font-size: 28px; color: #374151; font-weight: 700; }}
+  .beacon-hint {{ margin-top: 12px; font-size: 24px; color: #374151; font-weight: 700; }}
 
   .u-neutral {{ background: #ffffff; }}
   .u-amber {{ background: #fff7ed; }}
@@ -289,32 +346,45 @@ page = f"""
   .pulse {{ border: 5px solid #b91c1c !important; animation: pulse 1.0s infinite; }}
   @keyframes pulse {{
     0% {{ box-shadow: 0 0 0 0 rgba(185, 28, 28, 0.55); }}
-    70% {{ box-shadow: 0 0 0 18px rgba(185, 28, 28, 0.0); }}
+    70% {{ box-shadow: 0 0 0 16px rgba(185, 28, 28, 0.0); }}
     100% {{ box-shadow: 0 0 0 0 rgba(185, 28, 28, 0.0); }}
   }}
 
-  .stack {{ height: calc(100vh - 140px); display:flex; flex-direction:column; gap:14px; }}
-  .section {{ border-radius: 18px; border: 1px solid #e5e7eb; overflow:hidden; background:#ffffff; }}
-  .section-h {{ padding: 12px 16px; font-size: 22px; font-weight: 900; letter-spacing: 0.02em; border-bottom: 1px solid #eef2f7; }}
+  .stack {{ height: calc(100vh - 130px); display:flex; flex-direction:column; gap:10px; }}
+  .section {{ border-radius: 16px; border: 1px solid #e5e7eb; overflow:hidden; background:#ffffff; }}
+  .section-h {{ padding: 10px 12px; font-size: 18px; font-weight: 900; letter-spacing: 0.02em; border-bottom: 1px solid #eef2f7; }}
   .h-critical {{ background: #fee2e2; color:#7f1d1d; }}
   .h-landing {{ background: #ffedd5; color:#7c2d12; }}
   .h-issues {{ background: #e0e7ff; color:#1e3a8a; }}
+  .h-loading {{ background: #fef9c3; color:#854d0e; }}
   .h-idle {{ background: #f3f4f6; color:#111827; }}
-  .items {{ padding: 10px 12px; display:flex; flex-direction:column; gap:10px; }}
 
-  .item {{ border-radius:14px; padding:12px 14px; border:1px solid #eef2f7; display:flex; align-items:center; justify-content:space-between; gap:10px; }}
-  .item-left {{ display:flex; align-items:baseline; gap:12px; }}
-  .pad {{ font-size:34px; font-weight:1000; color:#111827; min-width:42px; }}
-  .desc {{ font-size:22px; font-weight:800; color:#111827; }}
-  .meta {{ font-size:22px; font-weight:900; color:#111827; }}
+  .items {{ padding: 8px 10px; display:flex; flex-direction:column; gap:8px; }}
+  .item {{ border-radius: 12px; padding: 10px 12px; border: 1px solid #eef2f7; display:flex; align-items:center; justify-content:space-between; gap:10px; }}
+  .item-left {{ display:flex; align-items:baseline; gap:10px; }}
+  .pad {{ font-size: 30px; font-weight: 1000; color:#111827; min-width: 36px; }}
+  .desc {{ font-size: 18px; font-weight: 800; color:#111827; }}
+  .meta {{ font-size: 18px; font-weight: 900; color:#111827; }}
 
   .tag-red {{ background:#fecaca; border-color:#fca5a5; }}
   .tag-orange {{ background:#ffedd5; border-color:#fdba74; }}
   .tag-blue {{ background:#dbeafe; border-color:#93c5fd; }}
+  .tag-amber {{ background:#fef3c7; border-color:#fcd34d; }}
   .tag-gray {{ background:#f3f4f6; border-color:#e5e7eb; }}
 
-  .footer {{ margin-top:auto; border-radius:18px; border:1px solid #e5e7eb; background:#ffffff; padding:14px 16px; display:flex; gap:18px; justify-content:space-between; font-size:22px; font-weight:900; color:#111827; }}
-  .k {{ color:#6b7280; font-weight:800; margin-right:8px; }}
+  .footer {{
+    margin-top: auto;
+    border-radius: 16px;
+    border: 1px solid #e5e7eb;
+    background:#ffffff;
+    padding: 10px 12px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 18px;
+    font-weight: 900;
+    color:#111827;
+  }}
+  .k {{ color:#6b7280; font-weight: 800; margin-right: 8px; }}
 </style>
 </head>
 <body>
@@ -330,26 +400,7 @@ page = f"""
     </div>
 
     <div class="stack">
-      <div class="section">
-        <div class="section-h h-critical">🔴 CRITICAL</div>
-        <div class="items">{critical_items}</div>
-      </div>
-
-      <div class="section">
-        <div class="section-h h-issues">⚠️ ATTENTION</div>
-        <div class="items">{issues_items}</div>
-      </div>
-
-      <div class="section">
-        <div class="section-h h-landing">🟠 LANDING SOON</div>
-        <div class="items">{landing_items}</div>
-      </div>
-
-      <div class="section">
-        <div class="section-h h-idle">⚪ IDLE</div>
-        <div class="items" style="max-height: 220px; overflow: hidden;">{idle_items}</div>
-      </div>
-
+      {sections_html}
       <div class="footer">
         <div><span class="k">At Base</span>{at_base}</div>
         <div><span class="k">Arriving</span>{arriving}</div>
@@ -361,5 +412,4 @@ page = f"""
 </html>
 """
 
-# Make the component fill most of the page
 components.html(page, height=920, scrolling=False)
