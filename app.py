@@ -45,7 +45,7 @@ FLIGHT_MAX = 180
 LANDING_MIN = 5
 LANDING_MAX = 30
 
-LANDING_SOON_THRESHOLD = 60  # <=60s becomes "Inbound ≤60s" (order arriving to base)
+LANDING_SOON_THRESHOLD = 60  # ARRIVING countdown threshold for right-side "INBOUND ≤60s" section
 
 # Make it feel live
 SIM_SPEED = 2
@@ -82,7 +82,7 @@ CRITICAL_WEIGHT = 0.30
 @dataclass
 class PadState:
     pad: str
-    phase: str  # FLIGHT | LANDING | LOADING
+    phase: str  # COLLECTING | ARRIVING | AT_BASE
     remaining: int
     order_next: int
     storage: str
@@ -124,7 +124,7 @@ def init_state() -> Dict:
 
         pads[p] = PadState(
             pad=p,
-            phase="FLIGHT",
+            phase="COLLECTING",
             remaining=rng.randint(INITIAL_FLIGHT_MIN, INITIAL_FLIGHT_MAX),
             order_next=order_id,
             storage=pick_storage(rng),
@@ -155,20 +155,20 @@ def tick_sim(state: Dict) -> None:
             p.remaining = max(0, p.remaining - 1)
 
             # FLIGHT -> LANDING
-            if p.phase == "FLIGHT" and p.remaining == 0:
-                p.phase = "LANDING"
+            if p.phase == "COLLECTING" and p.remaining == 0:
+                p.phase = "ARRIVING"
                 p.remaining = rng.randint(LANDING_MIN, LANDING_MAX)
 
             # LANDING -> LOADING
-            elif p.phase == "LANDING" and p.remaining == 0:
-                p.phase = "LOADING"
+            elif p.phase == "ARRIVING" and p.remaining == 0:
+                p.phase = "AT_BASE"
                 p.issue, p.severity = maybe_issue(rng)
                 p.fix_left = FIX_EXTRA_SECONDS if p.issue else 0
                 p.remaining = LOAD_SECONDS + (FIX_EXTRA_SECONDS if p.issue else 0)
 
             # LOADING -> FLIGHT
-            elif p.phase == "LOADING" and p.remaining == 0:
-                p.phase = "FLIGHT"
+            elif p.phase == "AT_BASE" and p.remaining == 0:
+                p.phase = "COLLECTING"
                 p.remaining = rng.randint(FLIGHT_MIN, FLIGHT_MAX)
                 p.order_next = next_order(p.order_next)
                 p.storage = pick_storage(rng)
@@ -177,7 +177,7 @@ def tick_sim(state: Dict) -> None:
                 p.fix_left = 0
 
             # LOADING issue timer
-            if p.phase == "LOADING" and p.issue and p.fix_left > 0:
+            if p.phase == "AT_BASE" and p.issue and p.fix_left > 0:
                 p.fix_left = max(0, p.fix_left - 1)
 
     # rotate banner text
@@ -190,22 +190,22 @@ def tick_sim(state: Dict) -> None:
 # Priority (LOCKED)
 # ----------------------------
 def pick_primary(pads: List[PadState]) -> Tuple[str, Optional[PadState], str]:
-    critical = [p for p in pads if p.phase == "LOADING" and p.issue and p.severity == "critical"]
+    critical = [p for p in pads if p.phase == "AT_BASE" and p.issue and p.severity == "critical"]
     if critical:
         p = sorted(critical, key=lambda x: x.pad)[0]
         return "critical", p, p.issue or "Critical issue"
 
-    attention = [p for p in pads if p.phase == "LOADING" and p.issue and p.severity == "attention"]
+    attention = [p for p in pads if p.phase == "AT_BASE" and p.issue and p.severity == "attention"]
     if attention:
         p = sorted(attention, key=lambda x: x.pad)[0]
         return "attention", p, p.issue or "Attention issue"
 
-    loading = [p for p in pads if p.phase == "LOADING" and not p.issue]
+    loading = [p for p in pads if p.phase == "AT_BASE" and not p.issue]
     if loading:
         p = sorted(loading, key=lambda x: x.remaining)[0]
         return "loading", p, "Load now"
 
-    landing = [p for p in pads if p.phase == "LANDING" and p.remaining <= LANDING_SOON_THRESHOLD]
+    landing = [p for p in pads if p.phase == "ARRIVING" and p.remaining <= LANDING_SOON_THRESHOLD]
     if landing:
         p = sorted(landing, key=lambda x: x.remaining)[0]
         return "landing", p, "Landing soon"
@@ -256,16 +256,16 @@ def section_html(title: str, cls: str, items_html: str) -> str:
 def build_right_stack(pads: List[PadState]) -> str:
     used = set()
 
-    critical = sorted([p for p in pads if p.phase == "LOADING" and p.issue and p.severity == "critical"], key=lambda x: x.pad)
+    critical = sorted([p for p in pads if p.phase == "AT_BASE" and p.issue and p.severity == "critical"], key=lambda x: x.pad)
     used |= {p.pad for p in critical}
 
-    attention = sorted([p for p in pads if p.phase == "LOADING" and p.issue and p.severity == "attention" and p.pad not in used], key=lambda x: x.pad)
+    attention = sorted([p for p in pads if p.phase == "AT_BASE" and p.issue and p.severity == "attention" and p.pad not in used], key=lambda x: x.pad)
     used |= {p.pad for p in attention}
 
-    loading = sorted([p for p in pads if p.phase == "LOADING" and not p.issue and p.pad not in used], key=lambda x: x.remaining)
+    loading = sorted([p for p in pads if p.phase == "AT_BASE" and not p.issue and p.pad not in used], key=lambda x: x.remaining)
     used |= {p.pad for p in loading}
 
-    landing = sorted([p for p in pads if p.phase == "LANDING" and p.remaining <= LANDING_SOON_THRESHOLD and p.pad not in used], key=lambda x: x.remaining)
+    landing = sorted([p for p in pads if p.phase == "ARRIVING" and p.remaining <= LANDING_SOON_THRESHOLD and p.pad not in used], key=lambda x: x.remaining)
     used |= {p.pad for p in landing}
 
     html = ""
@@ -295,7 +295,7 @@ def build_right_stack(pads: List[PadState]) -> str:
         html += section_html(
             "🟠 INBOUND ≤60s",
             "h-land",
-            "".join(item_html(p.pad, "landing", "Inbound", f"{p.remaining}s • {p.storage} {p.order_next}") for p in landing),
+            "".join(item_html(p.pad, "landing", "Arriving Soon", f"{p.remaining}s • {p.storage} {p.order_next}") for p in landing),
         )
 
     if not html.strip():
@@ -350,14 +350,14 @@ def build_left_panel(kind: str, p: Optional[PadState], label: str) -> str:
     <div class="arrow">➡</div>
     <div class="padbig">{p.pad}</div>
   </div>
-  <div class="primaryline">Inbound in {p.remaining}s</div>
+  <div class="primaryline">Arriving Soon in {p.remaining}s</div>
   <div class="orderline">{p.storage} {p.order_next}</div>
 </div>
 """
 
 
 def top_banner(pads: List[PadState], mode: str, state: Dict, primary: Optional[PadState], primary_label: str) -> Tuple[str, str]:
-    crit = [p for p in pads if p.phase == "LOADING" and p.issue and p.severity == "critical"]
+    crit = [p for p in pads if p.phase == "AT_BASE" and p.issue and p.severity == "critical"]
     if crit:
         p = sorted(crit, key=lambda x: x.pad)[0]
         return "banner-red", f"CRITICAL: {p.issue} (Pad {p.pad})"
@@ -449,14 +449,14 @@ left_html = build_left_panel(kind, primary_pad, primary_label)
 right_html = build_right_stack(pads)
 
 # Footer counts (define here; no NameError possible)
-at_base = sum(1 for p in pads if p.phase == "LOADING")
-inbound_soon = sum(1 for p in pads if p.phase == "LANDING" and p.remaining <= LANDING_SOON_THRESHOLD)
+at_base = sum(1 for p in pads if p.phase == "AT_BASE")
+arriving_soon = sum(1 for p in pads if p.phase == "COLLECTING")
 cancelled = 0  # demo constant
 
 right_html += f"""
 <div class="footer">
   <div><span class="k">At Base</span>{at_base}</div>
-  <div><span class="k">Inbound ≤60s</span>{inbound_soon}</div>
+  <div><span class="k">Arriving Soon</span>{inbound_total}</div>
   <div><span class="k">Cancelled</span>{cancelled}</div>
 </div>
 """
