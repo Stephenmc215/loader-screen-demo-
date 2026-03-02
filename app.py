@@ -9,7 +9,7 @@ st.set_page_config(page_title="Loader Screen Demo", layout="wide")
 # -----------------------------
 # Settings
 # -----------------------------
-TICK_SECONDS = 2
+TICK_SECONDS = 1
 st_autorefresh(interval=TICK_SECONDS * 1000, key="loader_refresh")
 
 # -----------------------------
