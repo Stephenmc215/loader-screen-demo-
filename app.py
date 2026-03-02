@@ -2,14 +2,13 @@ import random
 from dataclasses import dataclass
 import streamlit as st
 import streamlit.components.v1 as components
+from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="Loader Wall Screen Demo", layout="wide")
 
-# -----------------------------
-# Simulation timing
-# -----------------------------
+# Rerun the script every N milliseconds (this is what makes seconds tick down)
 TICK_SECONDS = 2
-REFRESH_MS = TICK_SECONDS * 1000
+st_autorefresh(interval=TICK_SECONDS * 1000, key="tick")
 
 # -----------------------------
 # Simulation model
@@ -60,19 +59,16 @@ def init_pads(n: int = 8):
         o = next_order(o)
     return pads
 
-# One sim per session (each viewer gets their own sim)
+# Each viewer gets their own simulation state (normal on Streamlit)
 if "pads" not in st.session_state:
-    st.session_state.pads = init_pads(8)
     st.session_state.seed = random.randint(1, 10_000_000)
     random.seed(st.session_state.seed)
+    st.session_state.pads = init_pads(8)
 
 pads = st.session_state.pads
 
 # -----------------------------
 # Step simulation
-# - Orders advance visibly: when a craft lands and enters LOADING, we immediately
-#   advance to the next order (the one being loaded now). That way the wall view
-#   always shows "what's currently being loaded / in flight", not the completed one.
 # -----------------------------
 for p in pads:
     p.t = max(0, p.t - TICK_SECONDS)
@@ -87,7 +83,7 @@ for p in pads:
         # Craft has landed and is ready to be loaded with the NEXT order
         p.phase = "LOADING"
         p.t = LOADING
-        p.order = next_order(p.order)     # IMPORTANT: advance here so it's obvious it's working
+        p.order = next_order(p.order)     # advance here so it's obvious it's working
         p.storage = pick_storage()
         p.action = ""
         p.fault = False
@@ -107,20 +103,13 @@ for p in pads:
             p.action = ""
 
     elif p.phase == "FIXING" and p.t == 0:
-        # After fixing, take off with the loaded order
         p.phase = "FLIGHT"
         p.t = rand_flight()
         p.action = ""
         p.fault = False
 
 # -----------------------------
-# Priority rules
-# 1) Imminent landing (<15s) wins beacon
-# 2) Critical issue
-# 3) Loading/Fixing now (least time remaining)
-# 4) Other issues
-# 5) Landing soon (<=30s)
-# 6) Idle message
+# Priority rules / UI selection
 # -----------------------------
 IMMINENT = 15
 LANDING_SOON = 30
@@ -134,7 +123,6 @@ noncrit_issues = [p for p in issues if 0 < severity(p.action) < 4]
 
 loading_now = [p for p in pads if p.phase in ("LOADING", "FIXING")]
 
-# Top bar (interrupt only for HIGH/CRITICAL; otherwise RPP)
 best_issue = max(issues, key=lambda x: severity(x.action), default=None)
 if best_issue and severity(best_issue.action) >= 4:
     top_text = f"CRITICAL: {best_issue.action} (Pad {best_issue.pad})"
@@ -146,7 +134,6 @@ else:
     top_text = "RPP: 2 mins"
     top_bg = "#1f3a8a"
 
-# Beacon selection
 beacon_title = "RPP"
 beacon_pad = ""
 beacon_sub = "2 mins"
@@ -167,8 +154,6 @@ if imminent:
         pulse = True
     elif p.t <= 30:
         beacon_class = "u-amber"
-    else:
-        beacon_class = "u-neutral"
 elif critical:
     p = max(critical, key=lambda x: severity(x.action))
     beacon_title = "ATTENTION REQUIRED"
@@ -200,7 +185,6 @@ elif landing_soon:
     beacon_sub = f"Landing in {p.t}s"
     beacon_order = f"{storage_emoji(p.storage)} {p.order}"
     beacon_hint = "Next arrival approaching"
-    beacon_class = "u-neutral"
 
 def item_html(p: PadState, label: str, meta: str, tag: str) -> str:
     return f"""<div class="item {tag}">
@@ -211,13 +195,11 @@ def item_html(p: PadState, label: str, meta: str, tag: str) -> str:
       <div class="meta">{meta}</div>
     </div>"""
 
-
 loading_items = ""
-if loading_now:
-    for p in sorted(loading_now, key=lambda x: x.t)[:4]:
-        label = "Fixing" if p.phase == "FIXING" else "Loading"
-        meta = f"{p.t}s • {storage_emoji(p.storage)} {p.order}"
-        loading_items += item_html(p, label, meta, "tag-amber")
+for p in sorted(loading_now, key=lambda x: x.t)[:4]:
+    label = "Fixing" if p.phase == "FIXING" else "Loading"
+    meta = f"{p.t}s • {storage_emoji(p.storage)} {p.order}"
+    loading_items += item_html(p, label, meta, "tag-amber")
 
 critical_items = "".join(
     item_html(p, p.action, f"{storage_emoji(p.storage)} {p.order}", "tag-red")
@@ -240,12 +222,10 @@ for p in sorted(idle_candidates, key=lambda x: x.pad)[:3]:
     meta = "In flight" if p.phase == "FLIGHT" else "At base"
     idle_items += item_html(p, "Idle", meta, "tag-gray")
 
-# Counts (simple)
 at_base = sum(1 for p in pads if p.phase in ("LANDING", "LOADING", "FIXING"))
 arriving = sum(1 for p in pads if p.phase == "FLIGHT")
 cancelled = 0
 
-# Sections: hide empties
 sections_html = ""
 if critical_items:
     sections_html += f"""<div class="section">
@@ -263,7 +243,6 @@ if loading_items:
       <div class="items">{loading_items}</div>
     </div>"""
 
-# Landing soon always shown
 sections_html += f"""<div class="section">
   <div class="section-h h-landing">🟠 LANDING SOON</div>
   <div class="items">{landing_items}</div>
@@ -288,7 +267,6 @@ page = f"""<!doctype html>
 <html>
 <head>
 <meta charset="utf-8"/>
-<meta http-equiv="refresh" content="{REFRESH_MS/1000.0}">
 <style>
   html, body {{ height: 100%; }}
   body {{ margin: 0; padding: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:#ffffff; }}
@@ -367,7 +345,7 @@ page = f"""<!doctype html>
     padding: 12px 14px;
     display: flex;
     justify-content: space-between;
-    font-size: 22px;
+    font-size: 24px;
     font-weight: 1000;
     color:#111827;
   }}
