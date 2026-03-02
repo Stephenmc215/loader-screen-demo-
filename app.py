@@ -1,139 +1,241 @@
-
-import json
+import random
 import time
-from pathlib import Path
-import pandas as pd
+from dataclasses import dataclass, asdict
 import streamlit as st
+import pandas as pd
 from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="Loader Screen Demo", layout="wide")
 
+# -----------------------------
+# UI tuning (bigger text + full width)
+# -----------------------------
 st.markdown(
     """
     <style>
-      .block-container { padding-top: 0.6rem; padding-bottom: 0.6rem; padding-left: 1.2rem; padding-right: 1.2rem; max-width: 100% !important; }
-      h1, h2, h3 { margin-bottom: 0.35rem !important; }
-      .small-muted { color: #6b7280; font-size: 0.9rem; }
-      .banner { border-radius: 14px; padding: 16px 18px; text-align: center; color: white; font-weight: 800; font-size: 34px; letter-spacing: 0.2px; margin-bottom: 12px; }
-      .section-title { font-size: 30px; font-weight: 800; margin-top: 6px; margin-bottom: 8px; }
-      .stMetric { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 10px 12px; }
-      div[data-testid="stDataFrame"] thead tr th { font-size: 14px; }
-      div[data-testid="stDataFrame"] tbody tr td { font-size: 16px; }
+      .block-container { padding-top: 0.5rem; padding-bottom: 0.6rem; padding-left: 1.0rem; padding-right: 1.0rem; max-width: 100% !important; }
+      h1, h2, h3 { margin-bottom: 0.2rem !important; }
+      .banner { border-radius: 18px; padding: 18px 18px; text-align:center; color:white; font-weight:900; font-size:42px; letter-spacing:0.2px; margin-bottom:14px; }
+      .section-title { font-size: 34px; font-weight: 900; margin-top: 6px; margin-bottom: 10px; }
+      .small-muted { color:#6b7280; font-size: 1.05rem; }
+      .stMetric { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 14px; padding: 14px 14px; }
+      /* Dataframe font sizes */
+      div[data-testid="stDataFrame"] thead tr th { font-size: 18px !important; }
+      div[data-testid="stDataFrame"] tbody tr td { font-size: 22px !important; }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-DATA_DIR = Path("data")
+# Auto-refresh: feels "live" on a monitor
+TICK_SECONDS = 2
+st_autorefresh(interval=TICK_SECONDS * 1000, key="loader_refresh")
 
-REFRESH_SECONDS = 5
-st_autorefresh(interval=REFRESH_SECONDS * 1000, key="loader_refresh")
-
-SCENARIOS = ["scenario_normal.json", "scenario_incident.json"]
-
-def load_scenario(name: str) -> dict:
-    with open(DATA_DIR / name, "r") as f:
-        return json.load(f)
-
-def pick_scenario() -> str:
-    return SCENARIOS[int(time.time() / 30) % len(SCENARIOS)]
-
-# Display action mapping (from the PDF scenarios)
+# -----------------------------
+# Simulation model
+# -----------------------------
 ACTION_STYLES = {
-    "Moved to X":      {"severity": 1, "bg": "#dbeafe", "fg": "black"},
-    "Repress Pad":     {"severity": 1, "bg": "#dbeafe", "fg": "black"},
+    "": {"severity": 0, "bg": None, "fg": None},
+    "Moved to B": {"severity": 1, "bg": "#dbeafe", "fg": "black"},
+    "Repress Pad": {"severity": 1, "bg": "#dbeafe", "fg": "black"},
     "Change Cassette": {"severity": 2, "bg": "#fde68a", "fg": "black"},
-    "Reboot Drone":    {"severity": 3, "bg": "#fdba74", "fg": "black"},
-    "Change Drone":    {"severity": 4, "bg": "#f87171", "fg": "white"},
-    "Right Column":    {"severity": 0, "bg": "#f3f4f6", "fg": "black"},
-    "Top Bar":         {"severity": 5, "bg": "#b91c1c", "fg": "white"},
+    "Reboot Drone": {"severity": 3, "bg": "#fdba74", "fg": "black"},
+    "Change Drone": {"severity": 4, "bg": "#f87171", "fg": "white"},
 }
 
-def banner_from_state(state: dict) -> str:
-    alerts = state.get("top_bar_alerts") or []
-    if alerts:
-        return alerts[int(time.time() / 10) % len(alerts)]
+WEATHER_MESSAGES = [
+    "Weather: OK",
+    "Weather: Gusts possible",
+    "Weather: Light rain",
+    "Weather: Visibility OK",
+]
 
-    best = None
-    for p in state.get("pads", []):
-        display_action = (p.get("display_action") or "").strip()
-        if not display_action:
+PHASE_LABEL = {
+    "GROUND": "On ground",
+    "FLIGHT": "In flight",
+    "LANDING": "Landing",
+}
+
+@dataclass
+class PadState:
+    pad: str
+    order: int | None
+    phase: str  # GROUND/FLIGHT/LANDING
+    phase_t: int  # seconds remaining in phase
+    next_action: str  # may be blank or next order number str or action text
+    # internal flags
+    blocked: bool = False
+
+def next_order(n: int) -> int:
+    # 100, 103, 106 ... 999 then wrap to 100
+    n2 = n + 3
+    return 100 if n2 > 999 else n2
+
+def init_sim(num_pads: int = 8) -> dict:
+    pads = []
+    start = 100
+    for i in range(num_pads):
+        pad_letter = chr(ord("A") + i)
+        pads.append(PadState(pad=pad_letter, order=start, phase="FLIGHT", phase_t=60, next_action=""))
+        start = next_order(start)
+    return {
+        "pads": pads,
+        "cancelled": 0,
+        "last_updated": "Just now",
+        "rng_seed": random.randint(1, 10_000_000),
+        "weather_i": 0,
+    }
+
+def ensure_state():
+    if "sim" not in st.session_state:
+        st.session_state.sim = init_sim(num_pads=8)
+        random.seed(st.session_state.sim["rng_seed"])
+
+def maybe_fault_on_flight() -> str:
+    # Small chance per tick; tuned for “something happens sometimes” on demos.
+    # Tick=2s -> 30 ticks/min. 2% per minute ≈ 0.00068 per tick.
+    r = random.random()
+    if r < 0.0010:
+        return "Change Drone"
+    if r < 0.0030:
+        return "Reboot Drone"
+    if r < 0.0060:
+        return "Change Cassette"
+    if r < 0.0100:
+        return "Repress Pad"
+    return ""
+
+def maybe_fault_on_ground() -> str:
+    r = random.random()
+    if r < 0.0020:
+        return "Moved to B"
+    if r < 0.0050:
+        return "Repress Pad"
+    return ""
+
+def step_sim():
+    sim = st.session_state.sim
+    pads: list[PadState] = sim["pads"]
+
+    # Weather rotates only when there is no critical/high alert
+    sim["weather_i"] = (sim["weather_i"] + 1) % (len(WEATHER_MESSAGES) * 5)  # slow rotation
+
+    for p in pads:
+        # countdown
+        p.phase_t = max(0, p.phase_t - TICK_SECONDS)
+
+        # phase transitions
+        if p.phase == "FLIGHT" and p.phase_t == 0:
+            p.phase = "LANDING"
+            p.phase_t = 6  # landing window
+        elif p.phase == "LANDING" and p.phase_t == 0:
+            # landed -> load next order, back to flight
+            if p.order is None:
+                p.order = 100
+            p.order = next_order(p.order)
+            p.next_action = ""  # clear any old numeric/placeholder
+            p.phase = "FLIGHT"
+            p.phase_t = 60
+
+        # decide next action
+        # If next_action is a number (next order), keep it.
+        if p.next_action.isdigit():
             continue
-        sev = ACTION_STYLES.get(display_action, {"severity": 0})["severity"]
+
+        # faults depend on phase
+        fault = ""
+        if p.phase == "FLIGHT":
+            fault = maybe_fault_on_flight()
+        else:
+            fault = maybe_fault_on_ground()
+
+        # Apply fault as next action text (or keep blank most of the time)
+        p.next_action = fault
+
+        # Sometimes show “next order to load” while on ground/landing
+        if p.next_action == "" and p.phase in ("LANDING",) and random.random() < 0.15:
+            # show upcoming order id
+            nxt = next_order(p.order or 100)
+            p.next_action = str(nxt)
+
+    sim["last_updated"] = "Just now"
+
+def compute_banner(pads: list[PadState]) -> tuple[str, str]:
+    # If any critical action exists, keep it on top bar.
+    best = None
+    for p in pads:
+        a = p.next_action.strip()
+        sev = ACTION_STYLES.get(a, {"severity": 0})["severity"]
         if best is None or sev > best["sev"]:
-            best = {
-                "sev": sev,
-                "pad": p.get("pad", "?"),
-                "action": display_action,
-                "text": (p.get("next_action") or "").strip(),
-            }
+            best = {"sev": sev, "pad": p.pad, "action": a}
 
-    if best is None or best["sev"] <= 0:
-        return "Normal Operations"
+    if best and best["sev"] >= 4:
+        return (f"CRITICAL: {best['action']} (Pad {best['pad']})", "#b91c1c")
+    if best and best["sev"] == 3:
+        return (f"HIGH: {best['action']} (Pad {best['pad']})", "#b45309")
+    if best and best["sev"] == 2:
+        return (f"ATTN: {best['action']} (Pad {best['pad']})", "#1f3a8a")
 
-    action_text = best["text"] if best["text"] else best["action"]
-    if best["sev"] >= 4:
-        return f"CRITICAL: {action_text} (Pad {best['pad']})"
-    if best["sev"] == 3:
-        return f"HIGH: {action_text} (Pad {best['pad']})"
-    if best["sev"] == 2:
-        return f"ATTN: {action_text} (Pad {best['pad']})"
-    return f"{action_text} (Pad {best['pad']})"
+    # otherwise rotate weather
+    sim = st.session_state.sim
+    msg = WEATHER_MESSAGES[(sim["weather_i"] // 5) % len(WEATHER_MESSAGES)]
+    return (msg, "#1f3a8a")
 
-def banner_color(title: str, state: dict) -> str:
-    if state.get("top_bar_alerts"):
-        return "#b91c1c"
-    t = title.upper()
-    if "CRITICAL" in t:
-        return "#b91c1c"
-    if "HIGH" in t:
-        return "#b45309"
-    return "#1f3a8a"
+def style_table(df: pd.DataFrame, actions: list[str]) -> pd.io.formats.style.Styler:
+    def apply_styles(dataframe: pd.DataFrame):
+        styles = pd.DataFrame("", index=dataframe.index, columns=dataframe.columns)
+        for i, act in enumerate(actions):
+            act = act.strip()
+            # Blank or numeric should not be highlighted
+            if act == "" or act.isdigit():
+                continue
+            s = ACTION_STYLES.get(act)
+            if s and s["bg"]:
+                styles.loc[i, "Next Action"] = f"background-color:{s['bg']};color:{s['fg']};font-weight:900;"
+        return styles
+    return df.style.apply(apply_styles, axis=None)
 
-scenario_file = pick_scenario()
-state = load_scenario(scenario_file)
+# -----------------------------
+# Run simulation
+# -----------------------------
+ensure_state()
+step_sim()
 
-title = banner_from_state(state)
-st.markdown(
-    f"<div class='banner' style='background:{banner_color(title, state)};'>{title}</div>",
-    unsafe_allow_html=True,
-)
+pads: list[PadState] = st.session_state.sim["pads"]
 
-left, right = st.columns([1, 3.6], gap="large")
+banner_text, banner_bg = compute_banner(pads)
+st.markdown(f"<div class='banner' style='background:{banner_bg};'>{banner_text}</div>", unsafe_allow_html=True)
+
+left, right = st.columns([1, 3.8], gap="large")
 
 with left:
     st.markdown("<div class='section-title'>Base Status</div>", unsafe_allow_html=True)
-    st.metric("At Base", state["base"]["at_base"])
-    st.metric("Arriving Soon", state["base"]["arriving_soon"])
-    st.metric("Cancelled", state["base"]["cancelled"])
-    st.markdown(f"<div class='small-muted'>Last updated: {state['meta']['last_updated']}</div>", unsafe_allow_html=True)
+
+    at_base = sum(1 for p in pads if p.phase != "FLIGHT")
+    arriving = sum(1 for p in pads if p.phase == "FLIGHT")
+    cancelled = st.session_state.sim.get("cancelled", 0)
+
+    st.metric("At Base", at_base)
+    st.metric("Arriving Soon", arriving)
+    st.metric("Cancelled", cancelled)
+    st.markdown(f"<div class='small-muted'>Last updated: {st.session_state.sim['last_updated']}</div>", unsafe_allow_html=True)
 
 with right:
     st.markdown("<div class='section-title'>Pad Overview</div>", unsafe_allow_html=True)
 
-    df = pd.DataFrame(state["pads"]).copy()
-    df = df[["pad", "order", "rt", "next_action", "display_action"]]
-    df = df.rename(columns={"pad": "Pad", "order": "Order", "rt": "RT", "next_action": "Next Action"})
+    rows = []
+    actions = []
+    for p in pads:
+        rows.append({
+            "Pad": p.pad,
+            "Order": "" if p.order is None else f"{p.order}",
+            "Status": PHASE_LABEL.get(p.phase, p.phase),
+            "T (s)": p.phase_t,
+            "Next Action": p.next_action,
+        })
+        actions.append(p.next_action)
 
-    def style_next_action(dataframe: pd.DataFrame):
-        styles = pd.DataFrame("", index=dataframe.index, columns=dataframe.columns)
-        for i in range(len(dataframe)):
-            display_action = str(dataframe.loc[i, "display_action"] or "").strip()
-            next_text = str(dataframe.loc[i, "Next Action"] or "").strip()
+    df = pd.DataFrame(rows)
+    styled = style_table(df, actions)
 
-            # blank or numeric (next order id) should not be highlighted
-            if next_text == "" or next_text.isdigit():
-                continue
-
-            style = ACTION_STYLES.get(display_action)
-            if style:
-                styles.loc[i, "Next Action"] = f"background-color:{style['bg']};color:{style['fg']};font-weight:700;"
-            else:
-                styles.loc[i, "Next Action"] = "background-color:#f3f4f6;color:black;"
-
-        return styles
-
-    styled = df.style.apply(style_next_action, axis=None)
-    styled = styled.hide(axis="columns", subset=["display_action"])
-
-    st.dataframe(styled, use_container_width=True, hide_index=True, height=620)
+    st.dataframe(styled, use_container_width=True, hide_index=True, height=700)
