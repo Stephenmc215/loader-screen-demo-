@@ -7,7 +7,7 @@ from streamlit_autorefresh import st_autorefresh
 st.set_page_config(page_title="Loader Screen Demo", layout="wide")
 
 # -----------------------------
-# UI tuning (MAXIMISE TABLE SIZE)
+# UI Styling (clean + large)
 # -----------------------------
 st.markdown(
     """
@@ -30,27 +30,14 @@ st.markdown(
         margin-bottom:18px;
       }
 
-      .section-title {
-        font-size: 40px;
-        font-weight: 900;
-        margin-bottom: 10px;
-      }
-
-      /* MASSIVE TABLE TEXT */
       div[data-testid="stDataFrame"] thead tr th {
           font-size: 26px !important;
-          padding-top: 14px !important;
-          padding-bottom: 14px !important;
       }
 
       div[data-testid="stDataFrame"] tbody tr td {
           font-size: 34px !important;
           padding-top: 18px !important;
           padding-bottom: 18px !important;
-      }
-
-      .stMetric {
-        font-size: 28px !important;
       }
 
     </style>
@@ -61,13 +48,8 @@ st.markdown(
 TICK_SECONDS = 2
 st_autorefresh(interval=TICK_SECONDS * 1000, key="loader_refresh")
 
-# -----------------------------
-# Simple realistic model (ground-only faults)
-# -----------------------------
-
 ACTION_STYLES = {
     "": {"severity": 0, "bg": None, "fg": None},
-    "Moved to B": {"severity": 1, "bg": "#dbeafe", "fg": "black"},
     "Repress Pad": {"severity": 1, "bg": "#dbeafe", "fg": "black"},
     "Change Cassette": {"severity": 2, "bg": "#fde68a", "fg": "black"},
     "Reboot Drone": {"severity": 3, "bg": "#fdba74", "fg": "black"},
@@ -97,7 +79,7 @@ class Pad:
     fault: bool
 
 def next_order(n):
-    return 100 if n+3 > 999 else n+3
+    return 100 if n + 3 > 999 else n + 3
 
 def rand_flight():
     return random.randint(FLIGHT_MIN, FLIGHT_MAX)
@@ -106,7 +88,16 @@ def init():
     pads = []
     o = 100
     for i in range(8):
-        pads.append(Pad(chr(65+i), o, "FLIGHT", random.randint(20, rand_flight()), "", False))
+        pads.append(
+            Pad(
+                chr(65 + i),
+                o,
+                "FLIGHT",
+                random.randint(20, rand_flight()),
+                "",
+                False,
+            )
+        )
         o = next_order(o)
     return pads
 
@@ -115,7 +106,9 @@ if "pads" not in st.session_state:
 
 pads = st.session_state.pads
 
-# --- SIM STEP ---
+# -----------------------------
+# SIMULATION STEP
+# -----------------------------
 for p in pads:
     p.t = max(0, p.t - TICK_SECONDS)
 
@@ -134,7 +127,9 @@ for p in pads:
             p.fault = True
             p.phase = "FIXING"
             p.t = FIXING
-            p.action = random.choice(["Repress Pad","Change Cassette","Reboot Drone","Change Drone"])
+            p.action = random.choice(
+                ["Repress Pad", "Change Cassette", "Reboot Drone", "Change Drone"]
+            )
 
         if p.t == 0 and not p.fault:
             p.phase = "FLIGHT"
@@ -150,11 +145,11 @@ for p in pads:
         p.fault = False
 
 # -----------------------------
-# Banner
+# BANNER
 # -----------------------------
 critical = None
 for p in pads:
-    sev = ACTION_STYLES.get(p.action, {"severity":0})["severity"]
+    sev = ACTION_STYLES.get(p.action, {"severity": 0})["severity"]
     if sev >= 3:
         critical = (p.action, p.pad)
         break
@@ -166,29 +161,38 @@ else:
     text = "RPP: 2 mins"
     colour = "#1f3a8a"
 
-st.markdown(f"<div class='banner' style='background:{colour};'>{text}</div>", unsafe_allow_html=True)
+st.markdown(
+    f"<div class='banner' style='background:{colour};'>{text}</div>",
+    unsafe_allow_html=True,
+)
 
-left, right = st.columns([1,4], gap="large")
+# -----------------------------
+# LAYOUT
+# -----------------------------
+left, right = st.columns([1, 4], gap="large")
 
 with left:
-        at_base = sum(1 for p in pads if p.phase in ("LANDING","LOADING","FIXING"))
-    arriving = sum(1 for p in pads if p.phase=="FLIGHT")
+    at_base = sum(1 for p in pads if p.phase in ("LANDING", "LOADING", "FIXING"))
+    arriving = sum(1 for p in pads if p.phase == "FLIGHT")
+
     st.metric("At Base", at_base)
     st.metric("Arriving Soon", arriving)
     st.metric("Cancelled", 0)
 
 with right:
-    
     rows = []
     actions = []
+
     for p in pads:
-        rt = "" if p.phase in ("LANDING","LOADING","FIXING") else p.t
-        rows.append({
-            "Pad": p.pad,
-            "Order": p.order,
-            "RT (s)": rt,
-            "Next Action": p.action,
-        })
+        rt = "" if p.phase in ("LANDING", "LOADING", "FIXING") else p.t
+        rows.append(
+            {
+                "Pad": p.pad,
+                "Order": p.order,
+                "RT (s)": rt,
+                "Next Action": p.action,
+            }
+        )
         actions.append(p.action)
 
     df = pd.DataFrame(rows)
@@ -197,10 +201,18 @@ with right:
         styles = pd.DataFrame("", index=df.index, columns=df.columns)
         for i, a in enumerate(actions):
             if a in ACTION_STYLES and ACTION_STYLES[a]["bg"]:
-                styles.loc[i, "Next Action"] = f"background:{ACTION_STYLES[a]['bg']};color:{ACTION_STYLES[a]['fg']};font-weight:900;"
+                styles.loc[i, "Next Action"] = (
+                    f"background:{ACTION_STYLES[a]['bg']};"
+                    f"color:{ACTION_STYLES[a]['fg']};"
+                    f"font-weight:900;"
+                )
         return styles
 
     styled = df.style.apply(style, axis=None)
 
-    # VERY TALL GRID
-    st.dataframe(styled, use_container_width=True, hide_index=True, height=1000)
+    st.dataframe(
+        styled,
+        use_container_width=True,
+        hide_index=True,
+        height=1000,
+    )
