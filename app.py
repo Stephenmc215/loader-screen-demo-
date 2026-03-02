@@ -448,7 +448,7 @@ st.markdown(f'<div class="banner {banner_cls}">{banner_text}</div>', unsafe_allo
 left_html = build_left_panel(kind, primary_pad, primary_label)
 right_html = build_right_stack(pads)
 
-# Footer counts (define here; no NameError possible)
+# Footer counts (operational meaning)
 at_base = sum(1 for p in pads if p.phase == "AT_BASE")
 arriving_soon = sum(1 for p in pads if p.phase == "COLLECTING")
 cancelled = 0  # demo constant
@@ -456,9 +456,8 @@ cancelled = 0  # demo constant
 right_html += f"""
 <div class="footer">
   <div><span class="k">At Base</span>{at_base}</div>
-  <div><span class="k">Arriving Soon</span>{inbound_total}</div>
+  <div><span class="k">Arriving Soon</span>{arriving_soon}</div>
   <div><span class="k">Cancelled</span>{cancelled}</div>
 </div>
 """
-
 st.markdown(f'<div class="shell">{left_html}<div class="right">{right_html}</div></div>', unsafe_allow_html=True)
