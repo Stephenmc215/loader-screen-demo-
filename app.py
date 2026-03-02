@@ -172,7 +172,7 @@ def tick_sim(state: Dict) -> None:
 # 1) Critical issue (on ground)
 # 2) High/Attention issue (on ground)
 # 3) Loading now
-# 4) Landing ≤60s
+# 4) Arriving Soon
 # 5) Calm mode
 def pick_primary(pads: List[PadState]) -> Tuple[str, Optional[PadState], str]:
     critical = [p for p in pads if p.phase == "LOADING" and p.issue and p.severity == "critical"]
@@ -246,13 +246,13 @@ def build_right_sections_full(pads: List[PadState]) -> str:
     used = set()
 
     critical = sorted(
-        [p for p in pads if p.phase == "LOADING" and p.severity == "critical" and p.issue],
+        [p for p in pads if p.phase == "LOADING" and p.issue and p.severity == "critical"],
         key=lambda x: x.pad
     )
     used |= {p.pad for p in critical}
 
     attention = sorted(
-        [p for p in pads if p.phase == "LOADING" and p.severity == "attention" and p.issue and p.pad not in used],
+        [p for p in pads if p.phase == "LOADING" and p.issue and p.severity == "attention" and p.pad not in used],
         key=lambda x: x.pad
     )
     used |= {p.pad for p in attention}
@@ -271,7 +271,6 @@ def build_right_sections_full(pads: List[PadState]) -> str:
 
     html = ""
 
-    # Only render sections if they have items
     if critical:
         crit_items = "".join(
             item_html(p.pad, "critical", p.issue or "Issue", f"{p.storage} {p.order_next}")
@@ -300,7 +299,7 @@ def build_right_sections_full(pads: List[PadState]) -> str:
         )
         html += section_html("🟠 LANDING ≤60s", "h-land", land_items)
 
-    # If nothing is worth showing, keep the right side clean with a single status card
+    # If nothing is worth showing, show a single status card (but no "summary" blocks)
     if not html.strip():
         html = section_html("⚪ STATUS", "h-flight", item_html("✓", "summary", "All clear", ""))
 
@@ -308,7 +307,8 @@ def build_right_sections_full(pads: List[PadState]) -> str:
 
 
 
-def build_right_sections_calm(pads: List[PadState]) -> str:
+
+def _unused_build_right_sections_calm(pads: List[PadState]) -> str:
     # Minimal summary + next arrival (still never-empty, no duplicates needed)
     at_base = sum(1 for p in pads if p.phase == "LOADING")
     landing_soon = sorted([p for p in pads if p.phase == "LANDING"], key=lambda x: x.remaining)
@@ -617,12 +617,8 @@ st.markdown(f'<div class="banner {banner_cls}">{banner_text}</div>', unsafe_allo
 
 left_html = build_left_panel(kind, primary_pad, primary_label)
 
-# Right side: full stack in ACTION/CRITICAL, minimal in CALM
-if mode in ("ACTION", "CRITICAL"):
-    right_html = build_right_sections_full(pads)
-else:
-    right_html = build_right_sections_calm(pads)
-
+# Right side: always use the actionable stack (no summary mode)
+right_html = build_right_sections_full(pads)
 # Footer counts (always present)
 at_base = sum(1 for p in pads if p.phase == "LOADING")
 arriving = sum(1 for p in pads if p.phase == "LANDING" and p.remaining <= LANDING_SOON_THRESHOLD)
@@ -631,8 +627,8 @@ in_flight = sum(1 for p in pads if p.phase == "FLIGHT")
 right_html += f"""
 <div class="footer">
   <div><span class="k">At Base</span>{at_base}</div>
-  <div><span class="k">Landing ≤60s</span>{arriving}</div>
-  <div><span class="k">In Flight</span>{in_flight}</div>
+  <div><span class="k">Arriving Soon</span>{arriving}</div>
+  <div><span class="k">Cancelled</span>{in_flight}</div>
 </div>
 """
 
