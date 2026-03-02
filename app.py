@@ -630,7 +630,7 @@ right_html += f"""
 <div class="footer">
   <div><span class="k">At Base</span>{at_base}</div>
   <div><span class="k">Arriving Soon</span>{arriving}</div>
-  <div><span class="k">Cancelled</span>{in_flight}</div>
+  <div><span class="k">Cancelled</span>{cancelled}</div>
 </div>
 """
 
