@@ -2,71 +2,65 @@ import random
 from dataclasses import dataclass
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Loader Screen Demo", layout="wide")
 
 # -----------------------------
 # Styling (banner + big grid + coloured action cells)
 # -----------------------------
-st.markdown(
-    """
-    <style>
-      .block-container { padding: 0.35rem 0.8rem !important; max-width: 100% !important; }
+CSS = """
+<style>
+  .block-container { padding: 0.35rem 0.8rem !important; max-width: 100% !important; }
+  .banner {
+    border-radius: 18px;
+    padding: 20px;
+    text-align:center;
+    color:white;
+    font-weight:900;
+    font-size:50px;
+    margin-bottom:18px;
+  }
+  .metrics-col { padding-top: 8px; }
+  .metric-label { font-size: 18px; color:#111827; margin-top: 28px; }
+  .metric-value { font-size: 58px; font-weight: 900; line-height: 1.0; color:#111827; }
 
-      .banner {
-        border-radius: 18px;
-        padding: 20px;
-        text-align:center;
-        color:white;
-        font-weight:900;
-        font-size:50px;
-        margin-bottom:18px;
-        background:#1f3a8a;
-      }
+  .grid-wrap { border: 1px solid #e5e7eb; border-radius: 14px; overflow: hidden; background: white; }
+  table.grid { width: 100%; border-collapse: collapse; table-layout: fixed; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+  table.grid th {
+    text-align: left;
+    font-size: 26px;
+    padding: 16px 16px;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f9fafb;
+    color: #6b7280;
+    font-weight: 700;
+  }
+  table.grid td {
+    font-size: 34px;
+    padding: 18px 16px;
+    border-bottom: 1px solid #eef2f7;
+    color: #111827;
+  }
+  table.grid tr:last-child td { border-bottom: none; }
 
-      .metrics-col { padding-top: 8px; }
-      .metric-label { font-size: 18px; color:#111827; margin-top: 28px; }
-      .metric-value { font-size: 58px; font-weight: 900; line-height: 1.0; color:#111827; }
+  /* Column widths: 4-col grid */
+  .col-pad { width: 14%; }
+  .col-order { width: 22%; }
+  .col-rt { width: 22%; }
+  .col-action { width: 42%; }
 
-      .grid-wrap { border: 1px solid #e5e7eb; border-radius: 14px; overflow: hidden; background: white; }
-      table.grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
-      table.grid th {
-        text-align: left;
-        font-size: 26px;
-        padding: 16px 16px;
-        border-bottom: 1px solid #e5e7eb;
-        background: #f9fafb;
-        color: #6b7280;
-        font-weight: 700;
-      }
-      table.grid td {
-        font-size: 34px;
-        padding: 18px 16px;
-        border-bottom: 1px solid #eef2f7;
-        color: #111827;
-      }
-      table.grid tr:last-child td { border-bottom: none; }
+  /* Action colour blocks (match PDF mapping) */
+  .act-none { background: transparent; }
+  .act-blue { background: #dbeafe; color: #111827; font-weight: 900; }
+  .act-yellow { background: #fde68a; color: #111827; font-weight: 900; }
+  .act-orange { background: #fdba74; color: #111827; font-weight: 900; }
+  .act-red { background: #f87171; color: #ffffff; font-weight: 900; }
 
-      /* Column widths: 4-col grid */
-      .col-pad { width: 14%; }
-      .col-order { width: 22%; }
-      .col-rt { width: 22%; }
-      .col-action { width: 42%; }
-
-      /* Action colour blocks (match PDF mapping) */
-      .act-none { background: transparent; }
-      .act-blue { background: #dbeafe; color: #111827; font-weight: 900; }
-      .act-yellow { background: #fde68a; color: #111827; font-weight: 900; }
-      .act-orange { background: #fdba74; color: #111827; font-weight: 900; }
-      .act-red { background: #f87171; color: #ffffff; font-weight: 900; }
-
-      /* Make action cells look like "badges" but full-cell */
-      td.action-cell { border-left: 1px solid #eef2f7; }
-
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+  td.action-cell { border-left: 1px solid #eef2f7; }
+</style>
+"""
+st.markdown(CSS, unsafe_allow_html=True)
 
 TICK_SECONDS = 2
 st_autorefresh(interval=TICK_SECONDS * 1000, key="loader_refresh")
@@ -125,18 +119,16 @@ for p in pads:
     elif p.phase == "LANDING" and p.t == 0:
         p.phase = "LOADING"
         p.t = LOADING
-        p.action = str(next_order(p.order))  # default task: next order to load
+        p.action = str(next_order(p.order))
         p.fault = False
 
     elif p.phase == "LOADING":
-        # Issues only happen on the ground (during loading)
         if not p.fault and random.random() < 0.04:
             p.fault = True
             p.phase = "FIXING"
             p.t = FIXING
             p.action = random.choice(ISSUES)
 
-        # If loading finished and no fault, take off
         if p.t == 0 and not p.fault:
             p.phase = "FLIGHT"
             p.order = next_order(p.order)
@@ -144,16 +136,12 @@ for p in pads:
             p.action = ""
 
     elif p.phase == "FIXING" and p.t == 0:
-        # After fixing, take off
         p.phase = "FLIGHT"
         p.order = next_order(p.order)
         p.t = rand_flight()
         p.action = ""
         p.fault = False
 
-# -----------------------------
-# Banner logic
-# -----------------------------
 def severity(action: str) -> int:
     if action == "Change Drone":
         return 4
@@ -183,9 +171,6 @@ else:
 
 st.markdown(f"<div class='banner' style='background:{banner_bg};'>{banner_text}</div>", unsafe_allow_html=True)
 
-# -----------------------------
-# Layout
-# -----------------------------
 left, right = st.columns([1, 4], gap="large")
 
 with left:
@@ -195,12 +180,10 @@ with left:
     st.markdown("<div class='metrics-col'>", unsafe_allow_html=True)
     st.markdown("<div class='metric-label'>At Base</div>", unsafe_allow_html=True)
     st.markdown(f"<div class='metric-value'>{at_base}</div>", unsafe_allow_html=True)
-
     st.markdown("<div class='metric-label'>Arriving Soon</div>", unsafe_allow_html=True)
     st.markdown(f"<div class='metric-value'>{arriving}</div>", unsafe_allow_html=True)
-
     st.markdown("<div class='metric-label'>Cancelled</div>", unsafe_allow_html=True)
-    st.markdown(f"<div class='metric-value'>0</div>", unsafe_allow_html=True)
+    st.markdown("<div class='metric-value'>0</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 def action_class(a: str) -> str:
@@ -215,41 +198,33 @@ def action_class(a: str) -> str:
     return "act-none"
 
 with right:
-    # Build HTML table for perfect colour reliability
-    header = """
-      <div class="grid-wrap">
-        <table class="grid">
-          <thead>
-            <tr>
-              <th class="col-pad">Pad</th>
-              <th class="col-order">Order</th>
-              <th class="col-rt">RT (s)</th>
-              <th class="col-action">Next Action</th>
-            </tr>
-          </thead>
-          <tbody>
-    """
-
+    # Render with components.html so Streamlit never prints raw tags
     rows_html = []
     for p in pads:
         rt = "" if p.phase in ("LANDING", "LOADING", "FIXING") else str(p.t)
         cls = action_class(p.action)
-        action_txt = p.action
         rows_html.append(
-            f"""
-            <tr>
-              <td>{p.pad}</td>
-              <td>{p.order}</td>
-              <td>{rt}</td>
-              <td class="action-cell {cls}">{action_txt}</td>
-            </tr>
-            """
+            f"<tr><td>{p.pad}</td><td>{p.order}</td><td>{rt}</td><td class='action-cell {cls}'>{p.action}</td></tr>"
         )
 
-    footer = """
-          </tbody>
-        </table>
-      </div>
+    table_html = f"""
+    {CSS}
+    <div class="grid-wrap">
+      <table class="grid">
+        <thead>
+          <tr>
+            <th class="col-pad">Pad</th>
+            <th class="col-order">Order</th>
+            <th class="col-rt">RT (s)</th>
+            <th class="col-action">Next Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {''.join(rows_html)}
+        </tbody>
+      </table>
+    </div>
     """
 
-    st.markdown(header + "\n".join(rows_html) + footer, unsafe_allow_html=True)
+    # Height allows the large rows to fit (tweak if needed)
+    components.html(table_html, height=820, scrolling=False)
