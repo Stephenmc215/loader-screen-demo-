@@ -171,16 +171,14 @@ st.markdown(f"<div class='banner' style='background:{colour};'>{text}</div>", un
 left, right = st.columns([1,4], gap="large")
 
 with left:
-    st.markdown("<div class='section-title'>Base Status</div>", unsafe_allow_html=True)
-    at_base = sum(1 for p in pads if p.phase in ("LANDING","LOADING","FIXING"))
+        at_base = sum(1 for p in pads if p.phase in ("LANDING","LOADING","FIXING"))
     arriving = sum(1 for p in pads if p.phase=="FLIGHT")
     st.metric("At Base", at_base)
     st.metric("Arriving Soon", arriving)
     st.metric("Cancelled", 0)
 
 with right:
-    st.markdown("<div class='section-title'>Pad Overview</div>", unsafe_allow_html=True)
-
+    
     rows = []
     actions = []
     for p in pads:
