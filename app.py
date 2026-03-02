@@ -1,35 +1,36 @@
-import random
 import time
-from dataclasses import dataclass, asdict
+import random
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import streamlit as st
 
-# ----------------------------
-# Wall Screen – Loader Demo
-# ----------------------------
-# Single-file Streamlit app with a lightweight simulation.
-# Orders increment by 3 (100..999) and wrap back to 100.
-# Issues only occur while craft is on-ground (loading window).
-# Landing soon list only shows pads within 60s of landing.
+# ============================================================
+# Loader Wall Screen – V10 (Clean Rebuild)
+# Landscape • Deterministic priority • Clean hierarchy
+# ============================================================
 
-st.set_page_config(page_title="Loader Wall Screen Demo", layout="wide")
+st.set_page_config(page_title="Loader Wall Screen – V10", layout="wide")
 
+# ----------------------------
+# Configuration
+# ----------------------------
 PADS = list("ABCDEFGH")
+
 ORDER_MIN = 100
 ORDER_MAX = 999
 ORDER_STEP = 3
 
-# Timing
+# Timing (seconds)
 LOAD_SECONDS = 60
-FIX_EXTRA_SECONDS = 30  # extra time available if an issue occurs while on ground
-FLIGHT_MIN = 120        # 2 min
-FLIGHT_MAX = 300        # 5 min
+FIX_EXTRA_SECONDS = 30          # extra time if an issue occurs while on-ground
+FLIGHT_MIN = 120
+FLIGHT_MAX = 300
 LANDING_MIN = 5
 LANDING_MAX = 60
-LANDING_SOON_THRESHOLD = 60
+LANDING_SOON_THRESHOLD = 60     # "Landing ≤ 60s"
 
-# Weather top bar fallback (when no critical banner)
+# Weather (only shown in CALM + no critical banner)
 WEATHER_ROTATE_SECONDS = 6
 WEATHER_MESSAGES = [
     "RPP: 2 mins",
@@ -41,7 +42,7 @@ WEATHER_MESSAGES = [
 # Storage emoji mapping (bag location)
 STORAGE_EMOJI = ["🔥", "📦", "🧊"]  # heat / shelf / freezer
 
-# Issue catalog (from your PDF concept). Only triggered on ground.
+# Issues: only triggered on ground (when entering LOADING)
 ISSUES: List[Tuple[str, str]] = [
     ("critical", "Change Drone"),
     ("critical", "Pad Blocked – do not assign"),
@@ -51,37 +52,47 @@ ISSUES: List[Tuple[str, str]] = [
     ("attention", "Comms lost"),
     ("attention", "Unit expired"),
 ]
+ISSUE_CHANCE = 0.22
+CRITICAL_WEIGHT = 0.30
 
-ISSUE_CHANCE = 0.22  # chance that a pad will get an issue during each on-ground window
-CRITICAL_WEIGHT = 0.30  # of issues, how many are critical
+# ----------------------------
+# Deterministic simulation model
+# ----------------------------
+@dataclass
+class PadState:
+    pad: str
+    phase: str                 # FLIGHT | LANDING | LOADING
+    remaining: int             # seconds remaining in current phase
+    order_next: int            # next order to be loaded on landing
+    storage: str               # emoji
+    issue: Optional[str] = None
+    severity: Optional[str] = None   # critical | attention
+    fix_left: int = 0               # counts down during LOADING if issue exists
 
 
 def next_order(order_id: int) -> int:
     nxt = order_id + ORDER_STEP
-    if nxt > ORDER_MAX:
-        return ORDER_MIN
-    return nxt
+    return ORDER_MIN if nxt > ORDER_MAX else nxt
 
 
 def pick_storage(rng: random.Random) -> str:
     return rng.choice(STORAGE_EMOJI)
 
 
-@dataclass
-class PadState:
-    pad: str
-    phase: str  # FLIGHT | LANDING | LOADING
-    remaining: int  # seconds remaining in current phase
-    order_next: int  # "next action" order to be loaded on next landing
-    storage: str  # emoji indicating where the bag is
-    issue: Optional[str] = None  # issue text (only relevant on ground)
-    severity: Optional[str] = None  # critical | attention
-    fix_left: int = 0  # seconds remaining in fix window (subset of LOADING)
+def maybe_issue(rng: random.Random) -> Tuple[Optional[str], Optional[str]]:
+    if rng.random() > ISSUE_CHANCE:
+        return None, None
+    if rng.random() < CRITICAL_WEIGHT:
+        candidates = [t for sev, t in ISSUES if sev == "critical"]
+        return rng.choice(candidates), "critical"
+    candidates = [t for sev, t in ISSUES if sev == "attention"]
+    return rng.choice(candidates), "attention"
 
 
-def init_state() -> Dict[str, PadState]:
-    seed = int(time.time())  # different per run, stable within session_state
+def init_state() -> Dict:
+    seed = int(time.time())
     rng = random.Random(seed)
+
     base_order = rng.randrange(ORDER_MIN, ORDER_MAX + 1, ORDER_STEP)
 
     pads: Dict[str, PadState] = {}
@@ -96,23 +107,15 @@ def init_state() -> Dict[str, PadState]:
             order_next=order_id,
             storage=pick_storage(rng),
         )
+
     return {
         "seed": seed,
+        "rng": rng,  # keep RNG object for deterministic progression in this session
         "pads": pads,
         "weather_idx": 0,
         "weather_next": time.time() + WEATHER_ROTATE_SECONDS,
         "last_tick": time.time(),
     }
-
-
-def maybe_issue(rng: random.Random) -> Tuple[Optional[str], Optional[str]]:
-    if rng.random() > ISSUE_CHANCE:
-        return None, None
-    if rng.random() < CRITICAL_WEIGHT:
-        candidates = [t for sev, t in ISSUES if sev == "critical"]
-        return rng.choice(candidates), "critical"
-    candidates = [t for sev, t in ISSUES if sev == "attention"]
-    return rng.choice(candidates), "attention"
 
 
 def tick_sim(state: Dict) -> None:
@@ -123,10 +126,7 @@ def tick_sim(state: Dict) -> None:
         return
     state["last_tick"] = now
 
-    rng = random.Random(state["seed"])
-    # advance rng based on time to keep determinism-ish per session
-    rng.jumpahead = None  # (compat shim; does nothing, keeps linter quiet)
-
+    rng: random.Random = state["rng"]
     pads: Dict[str, PadState] = state["pads"]
 
     for _ in range(dt):
@@ -145,7 +145,7 @@ def tick_sim(state: Dict) -> None:
                 p.fix_left = FIX_EXTRA_SECONDS if p.issue else 0
                 p.remaining = LOAD_SECONDS + (FIX_EXTRA_SECONDS if p.issue else 0)
 
-            # LOADING countdown (first FIX_EXTRA_SECONDS used for fixing if issue)
+            # LOADING countdown
             elif p.phase == "LOADING":
                 if p.issue and p.fix_left > 0:
                     p.fix_left = max(0, p.fix_left - 1)
@@ -154,37 +154,36 @@ def tick_sim(state: Dict) -> None:
                 if p.remaining == 0:
                     p.phase = "FLIGHT"
                     p.remaining = rng.randint(FLIGHT_MIN, FLIGHT_MAX)
-                    # once loaded & departed, immediately plan the NEXT action order
                     p.order_next = next_order(p.order_next)
                     p.storage = pick_storage(rng)
                     p.issue = None
                     p.severity = None
                     p.fix_left = 0
 
-    # rotate weather when no critical banner is showing
+    # rotate weather
     if time.time() >= state.get("weather_next", 0):
         state["weather_idx"] = (state["weather_idx"] + 1) % len(WEATHER_MESSAGES)
         state["weather_next"] = time.time() + WEATHER_ROTATE_SECONDS
 
 
+# ----------------------------
+# Deterministic priority engine (LOCKED)
+# ----------------------------
+# 1) Critical issue (on ground)
+# 2) High/Attention issue (on ground)
+# 3) Loading now
+# 4) Landing ≤60s
+# 5) Calm mode
 def pick_primary(pads: List[PadState]) -> Tuple[str, Optional[PadState], str]:
-    """
-    Priority rules for LEFT panel:
-    1) Critical issue on ground
-    2) Attention issue on ground
-    3) Any on-ground loading
-    4) Soonest landing
-    5) Default (weather/RPP)
-    """
-    critical = [p for p in pads if p.phase == "LOADING" and p.severity == "critical" and p.issue]
+    critical = [p for p in pads if p.phase == "LOADING" and p.issue and p.severity == "critical"]
     if critical:
         p = sorted(critical, key=lambda x: x.pad)[0]
-        return "critical", p, p.issue or "Issue"
+        return "critical", p, p.issue or "Critical issue"
 
-    attention = [p for p in pads if p.phase == "LOADING" and p.severity == "attention" and p.issue]
+    attention = [p for p in pads if p.phase == "LOADING" and p.issue and p.severity == "attention"]
     if attention:
         p = sorted(attention, key=lambda x: x.pad)[0]
-        return "attention", p, p.issue or "Attention"
+        return "attention", p, p.issue or "Attention issue"
 
     loading = [p for p in pads if p.phase == "LOADING" and not p.issue]
     if loading:
@@ -196,40 +195,185 @@ def pick_primary(pads: List[PadState]) -> Tuple[str, Optional[PadState], str]:
         p = sorted(landing, key=lambda x: x.remaining)[0]
         return "landing", p, "Landing soon"
 
-    return "default", None, ""
+    return "calm", None, "All clear"
 
 
-def item_html(p: PadState, kind: str, label: str, right_text: str) -> str:
+def wall_mode(kind: str) -> str:
+    # CRITICAL MODE: any critical issue exists (banner override)
+    if kind == "critical":
+        return "CRITICAL"
+    # ACTION MODE: any non-calm primary
+    if kind in ("attention", "loading", "landing"):
+        return "ACTION"
+    return "CALM"
+
+
+# ----------------------------
+# UI helpers (no duplicates, no empty sections)
+# ----------------------------
+def item_html(pad: str, kind: str, label: str, right_text: str) -> str:
     tag_class = {
         "critical": "tag-red",
         "attention": "tag-blue",
         "loading": "tag-yellow",
         "landing": "tag-orange",
         "flight": "tag-gray",
+        "summary": "tag-gray",
     }.get(kind, "tag-gray")
-
-    meta = right_text
 
     return f"""
 <div class="item {tag_class}">
   <div class="item-left">
-    <div class="pad">{p.pad}</div>
+    <div class="pad">{pad}</div>
     <div class="desc">{label}</div>
   </div>
-  <div class="meta">{meta}</div>
+  <div class="meta">{right_text}</div>
 </div>
 """
 
 
-def top_banner(pads: List[PadState], state: Dict) -> Tuple[str, str]:
-    # Banner prioritises critical issues; otherwise show rotating weather/RPP.
-    crit = [p for p in pads if p.phase == "LOADING" and p.severity == "critical" and p.issue]
+def section_html(title: str, cls: str, items_html: str) -> str:
+    # Never render empty: if no items, render a single placeholder row
+    safe_items = items_html if items_html.strip() else item_html("–", "summary", "None", "")
+    return f"""
+<div class="section">
+  <div class="section-h {cls}">{title}</div>
+  <div class="items">{safe_items}</div>
+</div>
+"""
+
+
+def build_right_sections_full(pads: List[PadState]) -> str:
+    # Disjoint assignment (no duplicate pads across sections)
+    used = set()
+
+    critical = sorted([p for p in pads if p.phase == "LOADING" and p.issue and p.severity == "critical"], key=lambda x: x.pad)
+    used |= {p.pad for p in critical}
+
+    attention = sorted([p for p in pads if p.phase == "LOADING" and p.issue and p.severity == "attention" and p.pad not in used], key=lambda x: x.pad)
+    used |= {p.pad for p in attention}
+
+    loading = sorted([p for p in pads if p.phase == "LOADING" and not p.issue and p.pad not in used], key=lambda x: x.remaining)
+    used |= {p.pad for p in loading}
+
+    landing = sorted([p for p in pads if p.phase == "LANDING" and p.remaining <= LANDING_SOON_THRESHOLD and p.pad not in used], key=lambda x: x.remaining)
+    used |= {p.pad for p in landing}
+
+    flight = sorted([p for p in pads if p.phase == "FLIGHT" and p.pad not in used], key=lambda x: x.pad)
+
+    html = ""
+
+    crit_items = "".join(item_html(p.pad, "critical", p.issue or "Issue", f"{p.storage} {p.order_next}") for p in critical)
+    html += section_html("🔴 CRITICAL", "h-critical", crit_items)
+
+    att_items = "".join(item_html(p.pad, "attention", p.issue or "Attention", f"{p.storage} {p.order_next}") for p in attention)
+    html += section_html("⚠️ ATTENTION", "h-attn", att_items)
+
+    load_items = "".join(item_html(p.pad, "loading", "Loading", f"{p.remaining}s • {p.storage} {p.order_next}") for p in loading)
+    html += section_html("🟡 LOADING NOW", "h-load", load_items)
+
+    land_items = "".join(item_html(p.pad, "landing", "Landing", f"{p.remaining}s • {p.storage} {p.order_next}") for p in landing)
+    html += section_html("🟠 LANDING ≤60s", "h-land", land_items)
+
+    flight_items = "".join(item_html(p.pad, "flight", "In flight", f"Next • {p.storage} {p.order_next}") for p in flight)
+    html += section_html("⚪ IN FLIGHT", "h-flight", flight_items)
+
+    return html
+
+
+def build_right_sections_calm(pads: List[PadState]) -> str:
+    # Minimal summary + next arrival (still never-empty, no duplicates needed)
+    at_base = sum(1 for p in pads if p.phase == "LOADING")
+    landing_soon = sorted([p for p in pads if p.phase == "LANDING"], key=lambda x: x.remaining)
+    in_flight = sum(1 for p in pads if p.phase == "FLIGHT")
+
+    summary_items = ""
+    summary_items += item_html("✓", "summary", "At base", f"{at_base}")
+    summary_items += item_html("⏳", "summary", "Landing", f"{len(landing_soon)}")
+    summary_items += item_html("✈", "summary", "In flight", f"{in_flight}")
+
+    next_items = ""
+    if landing_soon:
+        p = landing_soon[0]
+        next_items = item_html(p.pad, "landing", "Next landing", f"{p.remaining}s • {p.storage} {p.order_next}")
+
+    html = ""
+    html += section_html("⚪ SUMMARY", "h-flight", summary_items)
+    html += section_html("🟠 NEXT ARRIVAL", "h-land", next_items)
+    return html
+
+
+def build_left_panel(kind: str, p: Optional[PadState], label: str) -> str:
+    if kind == "calm" or p is None:
+        return f"""
+<div class="left calm">
+  <div class="left-title">STATUS</div>
+  <div class="left-big">All clear</div>
+  <div class="left-sub">Waiting for next arrival</div>
+</div>
+"""
+
+    urgent = (kind == "critical")
+    left_cls = "left urgent" if urgent else "left action"
+
+    if kind in ("critical", "attention"):
+        return f"""
+<div class="{left_cls}">
+  <div class="left-title">ACTION REQUIRED</div>
+  <div class="bigrow">
+    <div class="arrow">➡</div>
+    <div class="padbig">{p.pad}</div>
+  </div>
+  <div class="primaryline">{label}</div>
+  <div class="orderline">{p.storage} {p.order_next}</div>
+</div>
+"""
+
+    if kind == "loading":
+        return f"""
+<div class="{left_cls}">
+  <div class="left-title">LOAD NOW</div>
+  <div class="bigrow">
+    <div class="arrow">➡</div>
+    <div class="padbig">{p.pad}</div>
+  </div>
+  <div class="primaryline">{p.remaining}s left</div>
+  <div class="orderline">{p.storage} {p.order_next}</div>
+</div>
+"""
+
+    # landing
+    return f"""
+<div class="{left_cls}">
+  <div class="left-title">GO TO PAD</div>
+  <div class="bigrow">
+    <div class="arrow">➡</div>
+    <div class="padbig">{p.pad}</div>
+  </div>
+  <div class="primaryline">Landing in {p.remaining}s</div>
+  <div class="orderline">{p.storage} {p.order_next}</div>
+</div>
+"""
+
+
+def top_banner(pads: List[PadState], mode: str, state: Dict, primary: Optional[PadState], primary_label: str) -> Tuple[str, str]:
+    # CRITICAL MODE: red override
+    crit = [p for p in pads if p.phase == "LOADING" and p.issue and p.severity == "critical"]
     if crit:
         p = sorted(crit, key=lambda x: x.pad)[0]
         return "banner-red", f"CRITICAL: {p.issue} (Pad {p.pad})"
+
+    # ACTION MODE: blue banner describing the current top instruction
+    if mode == "ACTION" and primary is not None:
+        return "banner-blue", f"{primary_label.upper()} • PAD {primary.pad}"
+
+    # CALM MODE: rotating status/weather
     return "banner-blue", WEATHER_MESSAGES[state["weather_idx"]]
 
 
+# ----------------------------
+# Styling (Landscape 40/60, strong hierarchy)
+# ----------------------------
 CSS = """
 <style>
 :root{
@@ -238,7 +382,6 @@ CSS = """
   --muted:#5b6472;
   --card:#ffffff;
   --line:#e8ebf0;
-
   --blue:#1f3f8a;
   --red:#b51d1d;
 
@@ -258,17 +401,17 @@ CSS = """
   --tag_gray_line:#e1e3e8;
 }
 
-.main .block-container{padding-top:1rem; padding-bottom:1rem; max-width: 1400px;}
+.main .block-container{padding-top:1rem; padding-bottom:1rem; max-width: 1600px;}
 body{background:var(--bg); color:var(--ink);}
 
 .banner{
   border-radius:20px;
-  padding:22px 22px;
-  font-weight:900;
+  padding:18px 22px;
+  font-weight:1000;
   text-align:center;
   font-size:52px;
   letter-spacing:0.5px;
-  margin-bottom:18px;
+  margin-bottom:14px;
   color:white;
 }
 .banner-blue{background:var(--blue);}
@@ -276,43 +419,44 @@ body{background:var(--bg); color:var(--ink);}
 
 .shell{
   display:flex;
-  gap:18px;
+  gap:16px;
   align-items:stretch;
 }
 
 .left{
   flex:0 0 40%;
-  background:#fff6ea;
-  border:2px solid #f1dcc7;
   border-radius:18px;
   padding:26px 26px;
-  min-height: 72vh;
+  min-height: 74vh;
   display:flex;
   flex-direction:column;
   justify-content:center;
   overflow:hidden;
+  border:2px solid #e8ebf0;
+  background:#ffffff;
 }
-.left.urgent{
-  border:4px solid var(--red);
-  background:#fff0f0;
-}
-.left h2{
-  margin:0 0 14px 0;
-  font-size:44px;
+.left.action{background:#fff7ed; border-color:#f1dcc7;}
+.left.urgent{background:#fff0f0; border:4px solid var(--red);}
+.left.calm{background:#f8fafc;}
+
+.left-title{
+  font-size:34px;
+  font-weight:1000;
   letter-spacing:1px;
+  margin-bottom:10px;
 }
 .bigrow{
   display:flex;
-  gap:20px;
+  gap:18px;
   align-items:center;
 }
 .arrow{
   font-size:120px;
-  font-weight:900;
+  font-weight:1000;
   line-height:1;
 }
 .padbig{
-  font-size:180px;
+  font-size:190px;
   font-weight:1000;
   line-height:0.9;
 }
@@ -322,10 +466,16 @@ body{background:var(--bg); color:var(--ink);}
   font-weight:1000;
   line-height:1.05;
 }
-.subline{
-  margin-top:14px;
+.left-big{
+  margin-top:6px;
+  font-size:74px;
+  font-weight:1000;
+  line-height:1.05;
+}
+.left-sub{
+  margin-top:12px;
   font-size:28px;
-  font-weight:700;
+  font-weight:800;
   color:var(--muted);
 }
 .orderline{
@@ -341,8 +491,8 @@ body{background:var(--bg); color:var(--ink);}
   flex:0 0 60%;
   display:flex;
   flex-direction:column;
-  gap:14px;
-  min-height: 72vh;
+  gap:12px;
+  min-height: 74vh;
 }
 
 .section{
@@ -354,7 +504,7 @@ body{background:var(--bg); color:var(--ink);}
 .section-h{
   padding:10px 14px;
   font-size:18px;
-  font-weight:900;
+  font-weight:1000;
   letter-spacing:0.6px;
   display:flex;
   align-items:center;
@@ -378,7 +528,7 @@ body{background:var(--bg); color:var(--ink);}
 }
 .item-left{display:flex; gap:14px; align-items:center;}
 .pad{
-  width:44px; height:44px;
+  width:46px; height:46px;
   border-radius:12px;
   background:#ffffff;
   border:1px solid rgba(0,0,0,0.10);
@@ -386,8 +536,8 @@ body{background:var(--bg); color:var(--ink);}
   font-weight:1000;
   font-size:22px;
 }
-.desc{font-size:22px; font-weight:900;}
-.meta{font-size:22px; font-weight:900; color:var(--ink);}
+.desc{font-size:22px; font-weight:1000;}
+.meta{font-size:22px; font-weight:1000; color:var(--ink);}
 
 .tag-red{background:var(--tag_red_bg); border-color:var(--tag_red_line);}
 .tag-blue{background:var(--tag_blue_bg); border-color:var(--tag_blue_line);}
@@ -407,171 +557,55 @@ body{background:var(--bg); color:var(--ink);}
   font-weight:1000;
   color:#525b68;
 }
-.footer .k{color:#6b7483; font-weight:900; margin-right:10px;}
+.footer .k{color:#6b7483; font-weight:1000; margin-right:10px;}
 </style>
 """
 
 
-def build_right_sections(pads: List[PadState]) -> str:
-    # Disjoint sections (no pad appears twice)
-    used = set()
+# ----------------------------
+# App runtime
+# ----------------------------
+if "wall_v10_state" not in st.session_state:
+    st.session_state["wall_v10_state"] = init_state()
 
-    critical = [p for p in pads if p.phase == "LOADING" and p.severity == "critical" and p.issue]
-    critical = sorted(critical, key=lambda x: x.pad)
-    used |= {p.pad for p in critical}
+state = st.session_state["wall_v10_state"]
 
-    attention = [p for p in pads if p.phase == "LOADING" and p.severity == "attention" and p.issue and p.pad not in used]
-    attention = sorted(attention, key=lambda x: x.pad)
-    used |= {p.pad for p in attention}
+# Autorefresh every second so seconds always tick
+try:
+    from streamlit_autorefresh import st_autorefresh
+    st_autorefresh(interval=1000, key="tick_v10")
+except Exception:
+    pass
 
-    loading = [p for p in pads if p.phase == "LOADING" and p.pad not in used]
-    loading = sorted(loading, key=lambda x: x.remaining)
-    used |= {p.pad for p in loading}
-
-    landing = [p for p in pads if p.phase == "LANDING" and p.remaining <= LANDING_SOON_THRESHOLD and p.pad not in used]
-    landing = sorted(landing, key=lambda x: x.remaining)
-    used |= {p.pad for p in landing}
-
-    flight = [p for p in pads if p.phase == "FLIGHT" and p.pad not in used]
-    flight = sorted(flight, key=lambda x: x.pad)
-
-    html = ""
-
-    def sec(title: str, cls: str, items_html: str) -> str:
-        return f"""
-<div class="section">
-  <div class="section-h {cls}">{title}</div>
-  <div class="items">{items_html if items_html else '<div class="item tag-gray"><div class="desc">None</div></div>'}</div>
-</div>
-"""
-
-    # CRITICAL
-    crit_items = "".join(
-        item_html(p, "critical", p.issue or "Issue", f"{p.storage} {p.order_next}")
-        for p in critical
-    )
-    html += sec("🔴 CRITICAL", "h-critical", crit_items)
-
-    # ATTENTION
-    att_items = "".join(
-        item_html(p, "attention", p.issue or "Attention", f"{p.storage} {p.order_next}")
-        for p in attention
-    )
-    html += sec("⚠️ ATTENTION", "h-attn", att_items)
-
-    # LOADING NOW
-    load_items = "".join(
-        item_html(p, "loading", "Loading", f"{p.remaining}s • {p.storage} {p.order_next}")
-        for p in loading
-    )
-    html += sec("🟡 LOADING NOW", "h-load", load_items)
-
-    # LANDING SOON (<=60s)
-    land_items = "".join(
-        item_html(p, "landing", "Landing", f"{p.remaining}s • {p.storage} {p.order_next}")
-        for p in landing
-    )
-    html += sec("🟠 LANDING SOON", "h-land", land_items)
-
-    # IN FLIGHT (was IDLE)
-    flight_items = "".join(
-        item_html(p, "flight", "In flight", f"Next • {p.storage} {p.order_next}")
-        for p in flight
-    )
-    html += sec("⚪ IN FLIGHT", "h-flight", flight_items)
-
-    return html
-
-
-def build_left_panel(kind: str, p: Optional[PadState], label: str) -> str:
-    if kind == "default" or p is None:
-        return f"""
-<div class="left">
-  <h2>STATUS</h2>
-  <div class="primaryline">All clear</div>
-  <div class="subline">Waiting for next arrival</div>
-</div>
-"""
-    urgent = (kind in ("critical",))
-    left_cls = "left urgent" if urgent else "left"
-
-    if kind in ("critical", "attention"):
-        # issue-first
-        return f"""
-<div class="{left_cls}">
-  <h2>ACTION REQUIRED</h2>
-  <div class="bigrow">
-    <div class="arrow">➡</div>
-    <div class="padbig">{p.pad}</div>
-  </div>
-  <div class="primaryline">{label}</div>
-  <div class="orderline">{p.storage} {p.order_next}</div>
-</div>
-"""
-
-    if kind == "loading":
-        return f"""
-<div class="{left_cls}">
-  <h2>LOAD NOW</h2>
-  <div class="bigrow">
-    <div class="arrow">➡</div>
-    <div class="padbig">{p.pad}</div>
-  </div>
-  <div class="primaryline">{p.remaining}s left</div>
-  <div class="orderline">{p.storage} {p.order_next}</div>
-</div>
-"""
-
-    # landing
-    return f"""
-<div class="{left_cls}">
-  <h2>GO TO PAD</h2>
-  <div class="bigrow">
-    <div class="arrow">➡</div>
-    <div class="padbig">{p.pad}</div>
-  </div>
-  <div class="primaryline">Landing in {p.remaining}s</div>
-  <div class="orderline">{p.storage} {p.order_next}</div>
-</div>
-"""
-
-
-# -------- App ----------
-if "wall_state" not in st.session_state:
-    st.session_state["wall_state"] = init_state()
-
-state = st.session_state["wall_state"]
 tick_sim(state)
 pads = list(state["pads"].values())
 
-# Autorefresh every second (keeps seconds changing)
-try:
-    from streamlit_autorefresh import st_autorefresh as _st_autorefresh
-    _st_autorefresh(interval=1000, key="tick")
-except Exception:
-    # fallback: Streamlit reruns on interaction; on some hosts autorefresh may be unavailable
-    pass
-
 st.markdown(CSS, unsafe_allow_html=True)
 
-banner_cls, banner_text = top_banner(pads, state)
+kind, primary_pad, primary_label = pick_primary(pads)
+mode = wall_mode(kind)
+
+banner_cls, banner_text = top_banner(pads, mode, state, primary_pad, primary_label)
 st.markdown(f'<div class="banner {banner_cls}">{banner_text}</div>', unsafe_allow_html=True)
 
-kind, primary_pad, primary_label = pick_primary(pads)
 left_html = build_left_panel(kind, primary_pad, primary_label)
 
-right_html = build_right_sections(pads)
+# Right side: full stack in ACTION/CRITICAL, minimal in CALM
+if mode in ("ACTION", "CRITICAL"):
+    right_html = build_right_sections_full(pads)
+else:
+    right_html = build_right_sections_calm(pads)
 
-# footer counts
+# Footer counts (always present)
 at_base = sum(1 for p in pads if p.phase == "LOADING")
-arriving = sum(1 for p in pads if p.phase == "LANDING")
-cancelled = 0
+arriving = sum(1 for p in pads if p.phase == "LANDING" and p.remaining <= LANDING_SOON_THRESHOLD)
+in_flight = sum(1 for p in pads if p.phase == "FLIGHT")
 
 right_html += f"""
 <div class="footer">
   <div><span class="k">At Base</span>{at_base}</div>
-  <div><span class="k">Arriving</span>{arriving}</div>
-  <div><span class="k">Cancelled</span>{cancelled}</div>
+  <div><span class="k">Landing ≤60s</span>{arriving}</div>
+  <div><span class="k">In Flight</span>{in_flight}</div>
 </div>
 """
 
