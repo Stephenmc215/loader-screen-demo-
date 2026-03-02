@@ -1,3 +1,4 @@
+import time
 import random
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
@@ -5,17 +6,30 @@ from typing import Dict, List, Optional, Tuple
 import streamlit as st
 
 # ============================================================
-# Loader Wall Screen – app.py (final stable)
+# LOADER WALL SCREEN (V10 – REBUILT CLEAN)
 # Landscape • Deterministic priority • Clean hierarchy
-# Right sections only appear when they have items
-# No summary mode, no in-flight section
-# Footer: At Base • Arriving Soon • Cancelled (demo: always 0)
+#
+# Locked priority ladder:
+# 1) Critical issue (on ground)
+# 2) Attention issue (on ground)
+# 3) Loading now (on ground, no issue)
+# 4) Landing ≤60s
+# 5) Calm
+#
+# Right stack behavior:
+# - Sections ONLY appear if they have items
+# - No "In Flight" section
+# - If nothing actionable/soon: show a single STATUS card
+#
+# Footer:
+# - At Base • Arriving Soon • Cancelled
+# - Cancelled is a demo constant (0) in this simulator
 # ============================================================
 
 st.set_page_config(page_title="Loader Wall Screen", layout="wide")
 
 # ----------------------------
-# Configuration
+# Config
 # ----------------------------
 PADS = list("ABCDEFGH")
 
@@ -23,21 +37,22 @@ ORDER_MIN = 100
 ORDER_MAX = 999
 ORDER_STEP = 3
 
-# Timing (seconds)
+# Phase durations (seconds)
 LOAD_SECONDS = 60
 FIX_EXTRA_SECONDS = 30
 FLIGHT_MIN = 60
 FLIGHT_MAX = 180
 LANDING_MIN = 5
 LANDING_MAX = 30
-LANDING_SOON_THRESHOLD = 60
+
+LANDING_SOON_THRESHOLD = 60  # <=60s becomes "Arriving Soon"
 
 # Make it feel live
 SIM_SPEED = 2
 INITIAL_FLIGHT_MIN = 10
 INITIAL_FLIGHT_MAX = 80
 
-# Banner rotation
+# Banner rotation (calm only)
 WEATHER_ROTATE_SECONDS = 6
 WEATHER_MESSAGES = [
     "RPP: 2 mins",
@@ -67,12 +82,12 @@ CRITICAL_WEIGHT = 0.30
 @dataclass
 class PadState:
     pad: str
-    phase: str                 # FLIGHT | LANDING | LOADING
+    phase: str  # FLIGHT | LANDING | LOADING
     remaining: int
     order_next: int
     storage: str
     issue: Optional[str] = None
-    severity: Optional[str] = None   # critical | attention
+    severity: Optional[str] = None  # critical | attention
     fix_left: int = 0
 
 
@@ -89,10 +104,10 @@ def maybe_issue(rng: random.Random) -> Tuple[Optional[str], Optional[str]]:
     if rng.random() > ISSUE_CHANCE:
         return None, None
     if rng.random() < CRITICAL_WEIGHT:
-        candidates = [t for sev, t in ISSUES if sev == "critical"]
-        return rng.choice(candidates), "critical"
-    candidates = [t for sev, t in ISSUES if sev == "attention"]
-    return rng.choice(candidates), "attention"
+        crit = [t for sev, t in ISSUES if sev == "critical"]
+        return rng.choice(crit), "critical"
+    att = [t for sev, t in ISSUES if sev == "attention"]
+    return rng.choice(att), "attention"
 
 
 def init_state() -> Dict:
@@ -100,8 +115,8 @@ def init_state() -> Dict:
     rng = random.Random(seed)
 
     base_order = rng.randrange(ORDER_MIN, ORDER_MAX + 1, ORDER_STEP)
-    pads: Dict[str, PadState] = {}
 
+    pads: Dict[str, PadState] = {}
     for i, p in enumerate(PADS):
         order_id = base_order + i * ORDER_STEP
         while order_id > ORDER_MAX:
@@ -139,36 +154,40 @@ def tick_sim(state: Dict) -> None:
         for p in pads.values():
             p.remaining = max(0, p.remaining - 1)
 
+            # FLIGHT -> LANDING
             if p.phase == "FLIGHT" and p.remaining == 0:
                 p.phase = "LANDING"
                 p.remaining = rng.randint(LANDING_MIN, LANDING_MAX)
 
+            # LANDING -> LOADING
             elif p.phase == "LANDING" and p.remaining == 0:
                 p.phase = "LOADING"
                 p.issue, p.severity = maybe_issue(rng)
                 p.fix_left = FIX_EXTRA_SECONDS if p.issue else 0
                 p.remaining = LOAD_SECONDS + (FIX_EXTRA_SECONDS if p.issue else 0)
 
-            elif p.phase == "LOADING":
-                if p.issue and p.fix_left > 0:
-                    p.fix_left = max(0, p.fix_left - 1)
+            # LOADING -> FLIGHT
+            elif p.phase == "LOADING" and p.remaining == 0:
+                p.phase = "FLIGHT"
+                p.remaining = rng.randint(FLIGHT_MIN, FLIGHT_MAX)
+                p.order_next = next_order(p.order_next)
+                p.storage = pick_storage(rng)
+                p.issue = None
+                p.severity = None
+                p.fix_left = 0
 
-                if p.remaining == 0:
-                    p.phase = "FLIGHT"
-                    p.remaining = rng.randint(FLIGHT_MIN, FLIGHT_MAX)
-                    p.order_next = next_order(p.order_next)
-                    p.storage = pick_storage(rng)
-                    p.issue = None
-                    p.severity = None
-                    p.fix_left = 0
+            # LOADING issue timer
+            if p.phase == "LOADING" and p.issue and p.fix_left > 0:
+                p.fix_left = max(0, p.fix_left - 1)
 
+    # rotate banner text
     if time.time() >= state.get("weather_next", 0):
         state["weather_idx"] = (state["weather_idx"] + 1) % len(WEATHER_MESSAGES)
         state["weather_next"] = time.time() + WEATHER_ROTATE_SECONDS
 
 
 # ----------------------------
-# Deterministic priority engine (LOCKED)
+# Priority (LOCKED)
 # ----------------------------
 def pick_primary(pads: List[PadState]) -> Tuple[str, Optional[PadState], str]:
     critical = [p for p in pads if p.phase == "LOADING" and p.issue and p.severity == "critical"]
@@ -203,7 +222,7 @@ def wall_mode(kind: str) -> str:
 
 
 # ----------------------------
-# UI helpers
+# UI builders
 # ----------------------------
 def item_html(pad: str, kind: str, label: str, right_text: str) -> str:
     tag_class = {
@@ -211,7 +230,7 @@ def item_html(pad: str, kind: str, label: str, right_text: str) -> str:
         "attention": "tag-blue",
         "loading": "tag-yellow",
         "landing": "tag-orange",
-        "summary": "tag-gray",
+        "status": "tag-gray",
     }.get(kind, "tag-gray")
 
     return f"""
@@ -234,7 +253,7 @@ def section_html(title: str, cls: str, items_html: str) -> str:
 """
 
 
-def build_right_sections(pads: List[PadState]) -> str:
+def build_right_stack(pads: List[PadState]) -> str:
     used = set()
 
     critical = sorted([p for p in pads if p.phase == "LOADING" and p.issue and p.severity == "critical"], key=lambda x: x.pad)
@@ -280,7 +299,7 @@ def build_right_sections(pads: List[PadState]) -> str:
         )
 
     if not html.strip():
-        html = section_html("⚪ STATUS", "h-flight", item_html("✓", "summary", "All clear", ""))
+        html = section_html("⚪ STATUS", "h-flight", item_html("✓", "status", "All clear", ""))
 
     return html
 
@@ -349,6 +368,9 @@ def top_banner(pads: List[PadState], mode: str, state: Dict, primary: Optional[P
     return "banner-blue", WEATHER_MESSAGES[state["weather_idx"]]
 
 
+# ----------------------------
+# Styles
+# ----------------------------
 CSS = """
 <style>
 :root{
@@ -399,7 +421,7 @@ CSS = """
 
 
 # ----------------------------
-# App runtime
+# Runtime
 # ----------------------------
 if "wall_state" not in st.session_state:
     st.session_state["wall_state"] = init_state()
@@ -424,12 +446,12 @@ banner_cls, banner_text = top_banner(pads, mode, state, primary_pad, primary_lab
 st.markdown(f'<div class="banner {banner_cls}">{banner_text}</div>', unsafe_allow_html=True)
 
 left_html = build_left_panel(kind, primary_pad, primary_label)
-right_html = build_right_sections(pads)
+right_html = build_right_stack(pads)
 
-# Footer counts — DEFINE THESE RIGHT HERE (prevents NameError no matter what)
+# Footer counts (define here; no NameError possible)
 at_base = sum(1 for p in pads if p.phase == "LOADING")
 arriving_soon = sum(1 for p in pads if p.phase == "LANDING" and p.remaining <= LANDING_SOON_THRESHOLD)
-cancelled = 0
+cancelled = 0  # demo constant
 
 right_html += f"""
 <div class="footer">
