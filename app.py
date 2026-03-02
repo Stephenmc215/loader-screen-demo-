@@ -233,52 +233,79 @@ def item_html(pad: str, kind: str, label: str, right_text: str) -> str:
 
 
 def section_html(title: str, cls: str, items_html: str) -> str:
-    # Never render empty: if no items, render a single placeholder row
-    safe_items = items_html if items_html.strip() else item_html("–", "summary", "None", "")
     return f"""
 <div class="section">
   <div class="section-h {cls}">{title}</div>
-  <div class="items">{safe_items}</div>
+  <div class="items">{items_html}</div>
 </div>
 """
 
 
 def build_right_sections_full(pads: List[PadState]) -> str:
-    # Disjoint assignment (no duplicate pads across sections)
+    # Disjoint assignment (no pad appears twice)
     used = set()
 
-    critical = sorted([p for p in pads if p.phase == "LOADING" and p.issue and p.severity == "critical"], key=lambda x: x.pad)
+    critical = sorted(
+        [p for p in pads if p.phase == "LOADING" and p.severity == "critical" and p.issue],
+        key=lambda x: x.pad
+    )
     used |= {p.pad for p in critical}
 
-    attention = sorted([p for p in pads if p.phase == "LOADING" and p.issue and p.severity == "attention" and p.pad not in used], key=lambda x: x.pad)
+    attention = sorted(
+        [p for p in pads if p.phase == "LOADING" and p.severity == "attention" and p.issue and p.pad not in used],
+        key=lambda x: x.pad
+    )
     used |= {p.pad for p in attention}
 
-    loading = sorted([p for p in pads if p.phase == "LOADING" and not p.issue and p.pad not in used], key=lambda x: x.remaining)
+    loading = sorted(
+        [p for p in pads if p.phase == "LOADING" and not p.issue and p.pad not in used],
+        key=lambda x: x.remaining
+    )
     used |= {p.pad for p in loading}
 
-    landing = sorted([p for p in pads if p.phase == "LANDING" and p.remaining <= LANDING_SOON_THRESHOLD and p.pad not in used], key=lambda x: x.remaining)
+    landing = sorted(
+        [p for p in pads if p.phase == "LANDING" and p.remaining <= LANDING_SOON_THRESHOLD and p.pad not in used],
+        key=lambda x: x.remaining
+    )
     used |= {p.pad for p in landing}
-
-    flight = sorted([p for p in pads if p.phase == "FLIGHT" and p.pad not in used], key=lambda x: x.pad)
 
     html = ""
 
-    crit_items = "".join(item_html(p.pad, "critical", p.issue or "Issue", f"{p.storage} {p.order_next}") for p in critical)
-    html += section_html("🔴 CRITICAL", "h-critical", crit_items)
+    # Only render sections if they have items
+    if critical:
+        crit_items = "".join(
+            item_html(p.pad, "critical", p.issue or "Issue", f"{p.storage} {p.order_next}")
+            for p in critical
+        )
+        html += section_html("🔴 CRITICAL", "h-critical", crit_items)
 
-    att_items = "".join(item_html(p.pad, "attention", p.issue or "Attention", f"{p.storage} {p.order_next}") for p in attention)
-    html += section_html("⚠️ ATTENTION", "h-attn", att_items)
+    if attention:
+        att_items = "".join(
+            item_html(p.pad, "attention", p.issue or "Attention", f"{p.storage} {p.order_next}")
+            for p in attention
+        )
+        html += section_html("⚠️ ATTENTION", "h-attn", att_items)
 
-    load_items = "".join(item_html(p.pad, "loading", "Loading", f"{p.remaining}s • {p.storage} {p.order_next}") for p in loading)
-    html += section_html("🟡 LOADING NOW", "h-load", load_items)
+    if loading:
+        load_items = "".join(
+            item_html(p.pad, "loading", "Loading", f"{p.remaining}s • {p.storage} {p.order_next}")
+            for p in loading
+        )
+        html += section_html("🟡 LOADING NOW", "h-load", load_items)
 
-    land_items = "".join(item_html(p.pad, "landing", "Landing", f"{p.remaining}s • {p.storage} {p.order_next}") for p in landing)
-    html += section_html("🟠 LANDING ≤60s", "h-land", land_items)
+    if landing:
+        land_items = "".join(
+            item_html(p.pad, "landing", "Landing", f"{p.remaining}s • {p.storage} {p.order_next}")
+            for p in landing
+        )
+        html += section_html("🟠 LANDING ≤60s", "h-land", land_items)
 
-    flight_items = "".join(item_html(p.pad, "flight", "In flight", f"Next • {p.storage} {p.order_next}") for p in flight)
-    html += section_html("⚪ IN FLIGHT", "h-flight", flight_items)
+    # If nothing is worth showing, keep the right side clean with a single status card
+    if not html.strip():
+        html = section_html("⚪ STATUS", "h-flight", item_html("✓", "summary", "All clear", ""))
 
     return html
+
 
 
 def build_right_sections_calm(pads: List[PadState]) -> str:
@@ -598,17 +625,14 @@ else:
 
 # Footer counts (always present)
 at_base = sum(1 for p in pads if p.phase == "LOADING")
-arriving_soon = sum(
-    1 for p in pads
-    if p.phase == "LANDING" and p.remaining <= LANDING_SOON_THRESHOLD
-)
-cancelled = 0
+arriving = sum(1 for p in pads if p.phase == "LANDING" and p.remaining <= LANDING_SOON_THRESHOLD)
+in_flight = sum(1 for p in pads if p.phase == "FLIGHT")
 
 right_html += f"""
 <div class="footer">
   <div><span class="k">At Base</span>{at_base}</div>
-  <div><span class="k">Arriving Soon</span>{arriving_soon}</div>
-  <div><span class="k">Cancelled</span>{cancelled}</div>
+  <div><span class="k">Landing ≤60s</span>{arriving}</div>
+  <div><span class="k">In Flight</span>{in_flight}</div>
 </div>
 """
 
