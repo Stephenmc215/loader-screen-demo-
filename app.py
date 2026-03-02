@@ -15,8 +15,6 @@ st.set_page_config(page_title="Loader Wall Screen – V10", layout="wide")
 # ----------------------------
 # Configuration
 # ----------------------------
-SIM_SPEED = 3  # 3x faster time so the wall feels "live" immediately
-
 PADS = list("ABCDEFGH")
 
 ORDER_MIN = 100
@@ -105,7 +103,7 @@ def init_state() -> Dict:
         pads[p] = PadState(
             pad=p,
             phase="FLIGHT",
-            remaining=rng.randint(20, 120),  # shorter initial flights so activity starts quickly
+            remaining=rng.randint(FLIGHT_MIN, FLIGHT_MAX),
             order_next=order_id,
             storage=pick_storage(rng),
         )
@@ -131,7 +129,7 @@ def tick_sim(state: Dict) -> None:
     rng: random.Random = state["rng"]
     pads: Dict[str, PadState] = state["pads"]
 
-    for _ in range(dt * SIM_SPEED):
+    for _ in range(dt):
         for p in pads.values():
             p.remaining = max(0, p.remaining - 1)
 
@@ -275,7 +273,7 @@ def build_right_sections_full(pads: List[PadState]) -> str:
     html += section_html("🟡 LOADING NOW", "h-load", load_items)
 
     land_items = "".join(item_html(p.pad, "landing", "Landing", f"{p.remaining}s • {p.storage} {p.order_next}") for p in landing)
-    html += section_html("🟠 LANDING SOON (≤60s)", "h-land", land_items)
+    html += section_html("🟠 LANDING ≤60s", "h-land", land_items)
 
     flight_items = "".join(item_html(p.pad, "flight", "In flight", f"Next • {p.storage} {p.order_next}") for p in flight)
     html += section_html("⚪ IN FLIGHT", "h-flight", flight_items)
@@ -592,8 +590,11 @@ st.markdown(f'<div class="banner {banner_cls}">{banner_text}</div>', unsafe_allo
 
 left_html = build_left_panel(kind, primary_pad, primary_label)
 
-# Right side: always full stack (no summary mode)
-right_html = build_right_sections_full(pads)
+# Right side: full stack in ACTION/CRITICAL, minimal in CALM
+if mode in ("ACTION", "CRITICAL"):
+    right_html = build_right_sections_full(pads)
+else:
+    right_html = build_right_sections_calm(pads)
 
 # Footer counts (always present)
 at_base = sum(1 for p in pads if p.phase == "LOADING")
