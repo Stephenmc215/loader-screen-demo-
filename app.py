@@ -32,9 +32,10 @@ st.markdown("""
 class Pad:
     pad: str
     order: int
-    phase: str   # FLIGHT/LANDING/LOADING/FIXING
-    t: int       # seconds remaining in current phase
-    action: str  # "", numeric next order, or issue text
+    storage: str  # HEAT/SHELF/FREEZER
+    phase: str    # FLIGHT/LANDING/LOADING/FIXING
+    t: int        # seconds remaining in current phase
+    action: str   # "", numeric next order, or issue text
     fault: bool
 
 FLIGHT_MIN = 120
@@ -51,11 +52,23 @@ def next_order(n: int) -> int:
 def rand_flight() -> int:
     return random.randint(FLIGHT_MIN, FLIGHT_MAX)
 
+def pick_storage() -> str:
+    # Keep shelf most common, then heat, then freezer
+    r = random.random()
+    if r < 0.15:
+        return "FREEZER"
+    if r < 0.40:
+        return "HEAT"
+    return "SHELF"
+
+def storage_emoji(storage: str) -> str:
+    return {"HEAT": "🔥", "SHELF": "📦", "FREEZER": "🧊"}.get(storage, "")
+
 def init_pads(n: int = 8):
     pads = []
     o = 100
     for i in range(n):
-        pads.append(Pad(chr(65 + i), o, "FLIGHT", random.randint(20, rand_flight()), "", False))
+        pads.append(Pad(chr(65 + i), o, pick_storage(), "FLIGHT", random.randint(20, rand_flight()), "", False))
         o = next_order(o)
     return pads
 
@@ -98,6 +111,7 @@ for p in pads:
         if p.t == 0 and not p.fault:
             p.phase = "FLIGHT"
             p.order = next_order(p.order)
+            p.storage = pick_storage()  # new order => new storage location
             p.t = rand_flight()
             p.action = ""
 
@@ -105,6 +119,7 @@ for p in pads:
         # After fixing => take off
         p.phase = "FLIGHT"
         p.order = next_order(p.order)
+        p.storage = pick_storage()  # new order => new storage location
         p.t = rand_flight()
         p.action = ""
         p.fault = False
@@ -218,6 +233,12 @@ IFRAME_CSS = """
   }
   tr.focus td:first-child { border-left: 6px solid #000 !important; }
   tr.focus td:last-child  { border-right: 6px solid #000 !important; }
+
+  /* Order cell: emoji smaller than number to reduce clutter */
+  .order-emoji { font-size: 26px; margin-right: 10px; vertical-align: middle; display:inline-block; }
+  .order-num { font-size: 34px; font-weight: 800; vertical-align: middle; display:inline-block; }
+  tr.focus .order-emoji { font-size: 34px !important; }
+  tr.focus .order-num { font-size: 42px !important; }
 </style>
 """
 
@@ -233,10 +254,13 @@ with right:
         cls = action_class(p.action)
         row_class = "focus" if (focus_pad is not None and p.pad == focus_pad) else ""
 
+        emoji = storage_emoji(p.storage)
+        order_display = f"<span class='order-emoji'>{emoji}</span><span class='order-num'>{p.order}</span>"
+
         rows_html.append(
             f"<tr class='{row_class}'>"
             f"<td>{p.pad}</td>"
-            f"<td>{p.order}</td>"
+            f"<td>{order_display}</td>"
             f"<td>{rt_display}</td>"
             f"<td class='action-cell {cls}'>{p.action}</td>"
             f"</tr>"
