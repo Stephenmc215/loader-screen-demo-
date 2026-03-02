@@ -24,8 +24,8 @@ ORDER_STEP = 3
 # Timing (seconds)
 LOAD_SECONDS = 60
 FIX_EXTRA_SECONDS = 30          # extra time if an issue occurs while on-ground
-FLIGHT_MIN = 120
-FLIGHT_MAX = 300
+FLIGHT_MIN = 60
+FLIGHT_MAX = 150
 LANDING_MIN = 5
 LANDING_MAX = 60
 LANDING_SOON_THRESHOLD = 60     # "Landing ≤ 60s"
