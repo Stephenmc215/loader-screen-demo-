@@ -45,7 +45,7 @@ FLIGHT_MAX = 180
 LANDING_MIN = 5
 LANDING_MAX = 30
 
-LANDING_SOON_THRESHOLD = 60  # <=60s becomes "Arriving Soon"
+LANDING_SOON_THRESHOLD = 60  # <=60s becomes "Inbound ≤60s" (order arriving to base)
 
 # Make it feel live
 SIM_SPEED = 2
@@ -293,9 +293,9 @@ def build_right_stack(pads: List[PadState]) -> str:
 
     if landing:
         html += section_html(
-            "🟠 LANDING ≤60s",
+            "🟠 INBOUND ≤60s",
             "h-land",
-            "".join(item_html(p.pad, "landing", "Landing", f"{p.remaining}s • {p.storage} {p.order_next}") for p in landing),
+            "".join(item_html(p.pad, "landing", "Inbound", f"{p.remaining}s • {p.storage} {p.order_next}") for p in landing),
         )
 
     if not html.strip():
@@ -350,7 +350,7 @@ def build_left_panel(kind: str, p: Optional[PadState], label: str) -> str:
     <div class="arrow">➡</div>
     <div class="padbig">{p.pad}</div>
   </div>
-  <div class="primaryline">Landing in {p.remaining}s</div>
+  <div class="primaryline">Inbound in {p.remaining}s</div>
   <div class="orderline">{p.storage} {p.order_next}</div>
 </div>
 """
@@ -450,13 +450,13 @@ right_html = build_right_stack(pads)
 
 # Footer counts (define here; no NameError possible)
 at_base = sum(1 for p in pads if p.phase == "LOADING")
-arriving_soon = sum(1 for p in pads if p.phase == "LANDING" and p.remaining <= LANDING_SOON_THRESHOLD)
+inbound_soon = sum(1 for p in pads if p.phase == "LANDING" and p.remaining <= LANDING_SOON_THRESHOLD)
 cancelled = 0  # demo constant
 
 right_html += f"""
 <div class="footer">
   <div><span class="k">At Base</span>{at_base}</div>
-  <div><span class="k">Arriving Soon</span>{arriving_soon}</div>
+  <div><span class="k">Inbound ≤60s</span>{inbound_soon}</div>
   <div><span class="k">Cancelled</span>{cancelled}</div>
 </div>
 """
