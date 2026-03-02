@@ -1,27 +1,173 @@
 import random
 from dataclasses import dataclass
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh
-import streamlit.components.v1 as components
 
-st.set_page_config(page_title="Loader Screen Demo", layout="wide")
+st.set_page_config(page_title="Loader Wall Screen Demo", layout="wide")
 
 # -----------------------------
-# Settings
+# Simulation timing
 # -----------------------------
 TICK_SECONDS = 2
-st_autorefresh(interval=TICK_SECONDS * 1000, key="loader_refresh")
+REFRESH_MS = TICK_SECONDS * 1000
+
+st.markdown(f"""
+<script>
+  // Simple auto-refresh without extra packages
+  setTimeout(() => {{
+    window.parent.location.reload();
+  }}, {REFRESH_MS});
+</script>
+""", unsafe_allow_html=True)
 
 # -----------------------------
-# Parent-page CSS (banner + left metrics)
+# Styles (single-page; no iframe)
 # -----------------------------
 st.markdown("""
 <style>
-  .block-container { padding: 0.35rem 0.8rem !important; max-width: 100% !important; }
-  .banner { border-radius: 18px; padding: 20px; text-align:center; color:white; font-weight:900; font-size:50px; margin-bottom:18px; }
-  .metrics-col { padding-top: 8px; }
-  .metric-label { font-size: 18px; color:#111827; margin-top: 28px; }
-  .metric-value { font-size: 58px; font-weight: 900; line-height: 1.0; color:#111827; }
+  .block-container { padding: 0.30rem 0.80rem !important; max-width: 100% !important; }
+  header, footer { visibility: hidden; height: 0; }
+
+  /* Top banner */
+  .topbar {
+    border-radius: 18px;
+    padding: 18px 22px;
+    text-align: center;
+    color: #ffffff;
+    font-weight: 900;
+    font-size: 52px;
+    margin-bottom: 14px;
+  }
+
+  /* Layout */
+  .wall {
+    display: grid;
+    grid-template-columns: 60% 40%;
+    gap: 18px;
+    align-items: stretch;
+  }
+
+  /* Left: Next action beacon */
+  .beacon {
+    border-radius: 18px;
+    border: 1px solid #e5e7eb;
+    padding: 22px 26px;
+    background: #ffffff;
+    height: calc(100vh - 140px);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .beacon-title {
+    font-size: 34px;
+    font-weight: 900;
+    color: #111827;
+    letter-spacing: 0.02em;
+    margin-bottom: 18px;
+  }
+  .beacon-pad {
+    font-size: 140px;
+    font-weight: 1000;
+    line-height: 1.0;
+    margin: 0;
+  }
+  .beacon-sub {
+    font-size: 46px;
+    font-weight: 900;
+    margin-top: 10px;
+  }
+  .beacon-order {
+    margin-top: 18px;
+    font-size: 40px;
+    font-weight: 800;
+    color: #111827;
+  }
+  .beacon-order .emo { font-size: 38px; margin-right: 12px; }
+  .beacon-hint {
+    margin-top: 18px;
+    font-size: 28px;
+    color: #374151;
+    font-weight: 700;
+  }
+
+  /* Urgency colors for beacon */
+  .u-neutral { background: #ffffff; }
+  .u-amber { background: #fff7ed; }
+  .u-red { background: #fff1f2; }
+  .pulse {
+    animation: pulse 1.0s infinite;
+    border: 5px solid #b91c1c !important;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(185, 28, 28, 0.55); }
+    70% { box-shadow: 0 0 0 18px rgba(185, 28, 28, 0.0); }
+    100% { box-shadow: 0 0 0 0 rgba(185, 28, 28, 0.0); }
+  }
+
+  /* Right: Status stack */
+  .stack {
+    height: calc(100vh - 140px);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .section {
+    border-radius: 18px;
+    border: 1px solid #e5e7eb;
+    overflow: hidden;
+    background: #ffffff;
+  }
+  .section-h {
+    padding: 12px 16px;
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: 0.02em;
+    border-bottom: 1px solid #eef2f7;
+  }
+  .h-critical { background: #fee2e2; color:#7f1d1d; }
+  .h-landing { background: #ffedd5; color:#7c2d12; }
+  .h-issues { background: #e0e7ff; color:#1e3a8a; }
+  .h-idle { background: #f3f4f6; color:#111827; }
+
+  .items { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+  .item {
+    border-radius: 14px;
+    padding: 12px 14px;
+    border: 1px solid #eef2f7;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .item-left { display: flex; align-items: baseline; gap: 12px; }
+  .pad {
+    font-size: 34px;
+    font-weight: 1000;
+    color:#111827;
+    min-width: 42px;
+  }
+  .desc { font-size: 22px; font-weight: 800; color:#111827; }
+  .meta { font-size: 22px; font-weight: 900; color:#111827; }
+
+  .tag-red { background:#fecaca; border-color:#fca5a5; }
+  .tag-orange { background:#ffedd5; border-color:#fdba74; }
+  .tag-blue { background:#dbeafe; border-color:#93c5fd; }
+  .tag-gray { background:#f3f4f6; border-color:#e5e7eb; }
+
+  /* Footer metrics */
+  .footer {
+    margin-top: auto;
+    border-radius: 18px;
+    border: 1px solid #e5e7eb;
+    background:#ffffff;
+    padding: 14px 16px;
+    display: flex;
+    gap: 18px;
+    justify-content: space-between;
+    font-size: 22px;
+    font-weight: 900;
+    color:#111827;
+  }
+  .k { color:#6b7280; font-weight: 800; margin-right: 8px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -29,13 +175,13 @@ st.markdown("""
 # Simulation model
 # -----------------------------
 @dataclass
-class Pad:
+class PadState:
     pad: str
     order: int
-    storage: str  # HEAT/SHELF/FREEZER
-    phase: str    # FLIGHT/LANDING/LOADING/FIXING
-    t: int        # seconds remaining in current phase
-    action: str   # "", numeric next order, or issue text
+    storage: str     # HEAT/SHELF/FREEZER
+    phase: str       # FLIGHT/LANDING/LOADING/FIXING
+    t: int           # seconds remaining in current phase
+    action: str      # "", numeric next order, or issue text
     fault: bool
 
 FLIGHT_MIN = 120
@@ -53,7 +199,6 @@ def rand_flight() -> int:
     return random.randint(FLIGHT_MIN, FLIGHT_MAX)
 
 def pick_storage() -> str:
-    # Keep shelf most common, then heat, then freezer
     r = random.random()
     if r < 0.15:
         return "FREEZER"
@@ -68,9 +213,12 @@ def init_pads(n: int = 8):
     pads = []
     o = 100
     for i in range(n):
-        pads.append(Pad(chr(65 + i), o, pick_storage(), "FLIGHT", random.randint(20, rand_flight()), "", False))
+        pads.append(PadState(chr(65 + i), o, pick_storage(), "FLIGHT", random.randint(20, rand_flight()), "", False))
         o = next_order(o)
     return pads
+
+def severity(action: str) -> int:
+    return {"Repress Pad": 1, "Change Cassette": 2, "Reboot Drone": 3, "Change Drone": 4}.get(action, 0)
 
 # One sim per session (each viewer gets their own sim)
 if "pads" not in st.session_state:
@@ -80,9 +228,7 @@ if "pads" not in st.session_state:
 
 pads = st.session_state.pads
 
-# -----------------------------
 # Step simulation
-# -----------------------------
 for p in pads:
     p.t = max(0, p.t - TICK_SECONDS)
 
@@ -95,8 +241,7 @@ for p in pads:
     elif p.phase == "LANDING" and p.t == 0:
         p.phase = "LOADING"
         p.t = LOADING
-        # Default "next action" when on ground is the next order to load
-        p.action = str(next_order(p.order))
+        p.action = str(next_order(p.order))  # next order to load
         p.fault = False
 
     elif p.phase == "LOADING":
@@ -111,178 +256,203 @@ for p in pads:
         if p.t == 0 and not p.fault:
             p.phase = "FLIGHT"
             p.order = next_order(p.order)
-            p.storage = pick_storage()  # new order => new storage location
+            p.storage = pick_storage()
             p.t = rand_flight()
             p.action = ""
 
     elif p.phase == "FIXING" and p.t == 0:
-        # After fixing => take off
         p.phase = "FLIGHT"
         p.order = next_order(p.order)
-        p.storage = pick_storage()  # new order => new storage location
+        p.storage = pick_storage()
         p.t = rand_flight()
         p.action = ""
         p.fault = False
 
 # -----------------------------
-# Banner logic (unchanged)
+# Deterministic priority rules
+# 1) Imminent landing (<15s) wins
+# 2) Then highest-severity issue (Change Drone > Reboot > Change Cassette > Repress)
+# 3) Then next landing soon (<=30s)
+# 4) Else idle message
 # -----------------------------
-def severity(action: str) -> int:
-    return {"Repress Pad": 1, "Change Cassette": 2, "Reboot Drone": 3, "Change Drone": 4}.get(action, 0)
+IMMINENT = 15
+LANDING_SOON = 30
 
-best = max(pads, key=lambda x: severity(x.action))
-sev = severity(best.action)
+imminent = [p for p in pads if p.phase == "FLIGHT" and p.t <= IMMINENT]
+landing_soon = [p for p in pads if p.phase == "FLIGHT" and p.t <= LANDING_SOON]
 
-if sev >= 4:
-    banner_text = f"CRITICAL: {best.action} (Pad {best.pad})"
-    banner_bg = "#b91c1c"
-elif sev == 3:
-    banner_text = f"HIGH: {best.action} (Pad {best.pad})"
-    banner_bg = "#b45309"
+issues = [p for p in pads if severity(p.action) > 0]
+critical = [p for p in issues if severity(p.action) >= 4]
+noncrit_issues = [p for p in issues if 0 < severity(p.action) < 4]
+
+# Top bar (keep your existing concept: only show high/critical, else RPP)
+best_issue = max(issues, key=lambda x: severity(x.action), default=None)
+if best_issue and severity(best_issue.action) >= 4:
+    top_text = f"CRITICAL: {best_issue.action} (Pad {best_issue.pad})"
+    top_bg = "#b91c1c"
+elif best_issue and severity(best_issue.action) == 3:
+    top_text = f"HIGH: {best_issue.action} (Pad {best_issue.pad})"
+    top_bg = "#b45309"
 else:
-    banner_text = "RPP: 2 mins"
-    banner_bg = "#1f3a8a"
+    top_text = "RPP: 2 mins"
+    top_bg = "#1f3a8a"
 
-st.markdown(f"<div class='banner' style='background:{banner_bg};'>{banner_text}</div>", unsafe_allow_html=True)
+st.markdown(f"<div class='topbar' style='background:{top_bg};'>{top_text}</div>", unsafe_allow_html=True)
 
-# -----------------------------
-# Layout
-# -----------------------------
-left, right = st.columns([1, 4], gap="large")
+# Compute beacon (left 60%)
+beacon_mode = "idle"
+beacon_pad = None
+beacon_seconds = None
+beacon_title = "NEXT ACTION"
+beacon_sub = ""
+beacon_order = ""
+beacon_hint = ""
+beacon_class = "u-neutral"
 
-with left:
-    at_base = sum(1 for p in pads if p.phase in ("LANDING", "LOADING", "FIXING"))
-    arriving = sum(1 for p in pads if p.phase == "FLIGHT")
+if imminent:
+    p = min(imminent, key=lambda x: x.t)
+    beacon_mode = "landing"
+    beacon_pad = p.pad
+    beacon_seconds = p.t
+    beacon_title = "GO TO PAD"
+    beacon_sub = f"Landing in {p.t}s"
+    beacon_order = f"{storage_emoji(p.storage)} {p.order}"
+    beacon_hint = "Prepare to receive and load on landing"
+    if p.t < 10:
+        beacon_class = "u-red pulse"
+    elif p.t <= 30:
+        beacon_class = "u-amber"
+    else:
+        beacon_class = "u-neutral"
 
-    st.markdown("<div class='metrics-col'>", unsafe_allow_html=True)
-    st.markdown("<div class='metric-label'>At Base</div>", unsafe_allow_html=True)
-    st.markdown(f"<div class='metric-value'>{at_base}</div>", unsafe_allow_html=True)
-    st.markdown("<div class='metric-label'>Arriving Soon</div>", unsafe_allow_html=True)
-    st.markdown(f"<div class='metric-value'>{arriving}</div>", unsafe_allow_html=True)
-    st.markdown("<div class='metric-label'>Cancelled</div>", unsafe_allow_html=True)
-    st.markdown("<div class='metric-value'>0</div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+elif critical:
+    p = max(critical, key=lambda x: severity(x.action))
+    beacon_mode = "critical"
+    beacon_pad = p.pad
+    beacon_title = "ATTENTION REQUIRED"
+    beacon_sub = f"{p.action}"
+    beacon_order = f"{storage_emoji(p.storage)} {p.order}"
+    beacon_hint = "Resolve issue during loading window"
+    beacon_class = "u-red"
 
-def action_class(a: str) -> str:
-    return {
-        "Repress Pad": "act-blue",
-        "Change Cassette": "act-yellow",
-        "Reboot Drone": "act-orange",
-        "Change Drone": "act-red",
-    }.get(a, "act-none")
+elif noncrit_issues:
+    p = max(noncrit_issues, key=lambda x: severity(x.action))
+    beacon_mode = "issue"
+    beacon_pad = p.pad
+    beacon_title = "ATTENTION REQUIRED"
+    beacon_sub = f"{p.action}"
+    beacon_order = f"{storage_emoji(p.storage)} {p.order}"
+    beacon_hint = "Resolve issue during loading window"
+    beacon_class = "u-amber"
 
-# Decide which row gets the thick black focus box (highest severity issue, if any)
-focus_pad = None
-best_focus = 0
-for p in pads:
-    s = severity(p.action)
-    if s > best_focus:
-        best_focus = s
-        focus_pad = p.pad
-if best_focus == 0:
-    focus_pad = None
+elif landing_soon:
+    p = min(landing_soon, key=lambda x: x.t)
+    beacon_mode = "landing_soon"
+    beacon_pad = p.pad
+    beacon_seconds = p.t
+    beacon_title = "UP NEXT"
+    beacon_sub = f"Landing in {p.t}s"
+    beacon_order = f"{storage_emoji(p.storage)} {p.order}"
+    beacon_hint = "Next arrival approaching"
+    beacon_class = "u-neutral"
 
-# -----------------------------
-# Table (rendered in iframe; include CSS inside iframe)
-# -----------------------------
-IFRAME_CSS = """
-<style>
-  body { margin: 0; padding: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
-  .grid-wrap { border: 1px solid #e5e7eb; border-radius: 14px; overflow: hidden; background: white; }
-  table.grid { width: 100%; border-collapse: collapse; table-layout: fixed; }
-  table.grid th {
-    text-align: left;
-    font-size: 26px;
-    padding: 16px 16px;
-    border-bottom: 1px solid #e5e7eb;
-    background: #f9fafb;
-    color: #6b7280;
-    font-weight: 700;
-  }
-  table.grid td {
-    font-size: 34px;
-    padding: 18px 16px;
-    border-bottom: 1px solid #eef2f7;
-    color: #111827;
-    vertical-align: middle;
-  }
-  table.grid tr:last-child td { border-bottom: none; }
+else:
+    beacon_title = "RPP"
+    beacon_sub = "2 mins"
+    beacon_hint = "No urgent arrivals or issues"
+    beacon_class = "u-neutral"
 
-  .col-pad { width: 14%; }
-  .col-order { width: 22%; }
-  .col-rt { width: 22%; }
-  .col-action { width: 42%; }
+# Right stack content
+landing_blocks = sorted([p for p in pads if p.phase == "FLIGHT"], key=lambda x: x.t)
+idle_pads = [p for p in pads if severity(p.action) == 0 and not (p.phase == "FLIGHT" and p.t <= LANDING_SOON)]
 
-  .act-none { background: transparent; }
-  .act-blue { background: #dbeafe; font-weight: 900; }
-  .act-yellow { background: #fde68a; font-weight: 900; }
-  .act-orange { background: #fdba74; font-weight: 900; }
-  .act-red { background: #f87171; color: #ffffff; font-weight: 900; }
-
-  /* RT highlight: orange badge when <= 10s to landing */
-  .rt-warning { background:#fdba74; font-weight:900; padding:6px 10px; border-radius:8px; display:inline-block; }
-
-  td.action-cell { border-left: 1px solid #eef2f7; }
-
-  /* Focus row: thick black rectangle + larger text */
-  tr.focus td {
-    font-size: 42px !important;
-    font-weight: 900 !important;
-    border-top: 6px solid #000 !important;
-    border-bottom: 6px solid #000 !important;
-  }
-  tr.focus td:first-child { border-left: 6px solid #000 !important; }
-  tr.focus td:last-child  { border-right: 6px solid #000 !important; }
-
-  /* Order cell: emoji smaller than number to reduce clutter */
-  .order-emoji { font-size: 26px; margin-right: 10px; vertical-align: middle; display:inline-block; }
-  .order-num { font-size: 34px; font-weight: 800; vertical-align: middle; display:inline-block; }
-  tr.focus .order-emoji { font-size: 34px !important; }
-  tr.focus .order-num { font-size: 42px !important; }
-</style>
-"""
-
-with right:
-    rows_html = []
-    for p in pads:
-        # No RT when craft is on the ground
-        if p.phase in ("LANDING", "LOADING", "FIXING"):
-            rt_display = ""
-        else:
-            rt_display = f"<span class='rt-warning'>{p.t}</span>" if p.t <= 10 else str(p.t)
-
-        cls = action_class(p.action)
-        row_class = "focus" if (focus_pad is not None and p.pad == focus_pad) else ""
-
-        emoji = storage_emoji(p.storage)
-        order_display = f"<span class='order-emoji'>{emoji}</span><span class='order-num'>{p.order}</span>"
-
-        rows_html.append(
-            f"<tr class='{row_class}'>"
-            f"<td>{p.pad}</td>"
-            f"<td>{order_display}</td>"
-            f"<td>{rt_display}</td>"
-            f"<td class='action-cell {cls}'>{p.action}</td>"
-            f"</tr>"
-        )
-
-    table_html = f"""
-    {IFRAME_CSS}
-    <div class="grid-wrap">
-      <table class="grid">
-        <thead>
-          <tr>
-            <th class="col-pad">Pad</th>
-            <th class="col-order">Order</th>
-            <th class="col-rt">RT (s)</th>
-            <th class="col-action">Next Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {''.join(rows_html)}
-        </tbody>
-      </table>
+def item_html(p: PadState, label: str, meta: str, tag: str) -> str:
+    return f"""
+    <div class="item {tag}">
+      <div class="item-left">
+        <div class="pad">{p.pad}</div>
+        <div class="desc">{label}</div>
+      </div>
+      <div class="meta">{meta}</div>
     </div>
     """
 
-    components.html(table_html, height=820, scrolling=False)
+critical_items = []
+for p in sorted(critical, key=lambda x: severity(x.action), reverse=True):
+    critical_items.append(item_html(p, p.action, f"{storage_emoji(p.storage)} {p.order}", "tag-red"))
+
+issues_items = []
+for p in sorted(noncrit_issues, key=lambda x: severity(x.action), reverse=True):
+    issues_items.append(item_html(p, p.action, f"{storage_emoji(p.storage)} {p.order}", "tag-blue"))
+
+landing_items = []
+for p in landing_blocks[:4]:
+    landing_items.append(item_html(p, "Landing", f"{p.t}s • {storage_emoji(p.storage)} {p.order}", "tag-orange"))
+
+idle_items = []
+for p in sorted(idle_pads, key=lambda x: x.pad):
+    # Show phase when on ground as "At base"
+    if p.phase in ("LANDING", "LOADING", "FIXING"):
+        meta = "At base"
+    else:
+        meta = "In flight"
+    idle_items.append(item_html(p, "Idle", meta, "tag-gray"))
+
+# Footer metrics
+at_base = sum(1 for p in pads if p.phase in ("LANDING", "LOADING", "FIXING"))
+arriving = sum(1 for p in pads if p.phase == "FLIGHT")
+cancelled = 0
+
+# Render wall
+beacon_pad_line = f"<div class='beacon-pad'>➡ {beacon_pad}</div>" if beacon_pad else ""
+beacon_order_line = f"<div class='beacon-order'><span class='emo'>{beacon_order.split(' ')[0]}</span>{' '.join(beacon_order.split(' ')[1:])}</div>" if beacon_order else ""
+
+html = f"""
+<div class="wall">
+  <div class="beacon {beacon_class}">
+    <div class="beacon-title">{beacon_title}</div>
+    {beacon_pad_line}
+    <div class="beacon-sub">{beacon_sub}</div>
+    {beacon_order_line}
+    <div class="beacon-hint">{beacon_hint}</div>
+  </div>
+
+  <div class="stack">
+    <div class="section">
+      <div class="section-h h-critical">🔴 CRITICAL</div>
+      <div class="items">
+        {''.join(critical_items) if critical_items else '<div class="item tag-gray"><div class="desc">None</div></div>'}
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-h h-issues">⚠️ ATTENTION</div>
+      <div class="items">
+        {''.join(issues_items) if issues_items else '<div class="item tag-gray"><div class="desc">None</div></div>'}
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-h h-landing">🟠 LANDING SOON</div>
+      <div class="items">
+        {''.join(landing_items) if landing_items else '<div class="item tag-gray"><div class="desc">None</div></div>'}
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-h h-idle">⚪ IDLE</div>
+      <div class="items" style="max-height: 220px; overflow: hidden;">
+        {''.join(idle_items[:6]) if idle_items else '<div class="item tag-gray"><div class="desc">None</div></div>'}
+      </div>
+    </div>
+
+    <div class="footer">
+      <div><span class="k">At Base</span>{at_base}</div>
+      <div><span class="k">Arriving</span>{arriving}</div>
+      <div><span class="k">Cancelled</span>{cancelled}</div>
+    </div>
+  </div>
+</div>
+"""
+
+st.markdown(html, unsafe_allow_html=True)
