@@ -21,7 +21,7 @@ class PadState:
     storage: str     # HEAT/SHELF/FREEZER
     phase: str       # FLIGHT/LANDING/LOADING/FIXING
     t: int           # seconds remaining in current phase
-    action: str      # "", numeric next order, or issue text
+    action: str      # issue text, or ""
     fault: bool
 
 FLIGHT_MIN = 120
@@ -68,7 +68,12 @@ if "pads" not in st.session_state:
 
 pads = st.session_state.pads
 
+# -----------------------------
 # Step simulation
+# - Orders advance visibly: when a craft lands and enters LOADING, we immediately
+#   advance to the next order (the one being loaded now). That way the wall view
+#   always shows "what's currently being loaded / in flight", not the completed one.
+# -----------------------------
 for p in pads:
     p.t = max(0, p.t - TICK_SECONDS)
 
@@ -79,9 +84,12 @@ for p in pads:
         p.fault = False
 
     elif p.phase == "LANDING" and p.t == 0:
+        # Craft has landed and is ready to be loaded with the NEXT order
         p.phase = "LOADING"
         p.t = LOADING
-        p.action = str(next_order(p.order))  # next order to load
+        p.order = next_order(p.order)     # IMPORTANT: advance here so it's obvious it's working
+        p.storage = pick_storage()
+        p.action = ""
         p.fault = False
 
     elif p.phase == "LOADING":
@@ -92,27 +100,24 @@ for p in pads:
             p.t = FIXING
             p.action = random.choice(ISSUES)
 
-        # Finished loading with no fault => take off
+        # Finished loading with no fault => take off (same order continues in flight)
         if p.t == 0 and not p.fault:
             p.phase = "FLIGHT"
-            p.order = next_order(p.order)
-            p.storage = pick_storage()
             p.t = rand_flight()
             p.action = ""
 
     elif p.phase == "FIXING" and p.t == 0:
+        # After fixing, take off with the loaded order
         p.phase = "FLIGHT"
-        p.order = next_order(p.order)
-        p.storage = pick_storage()
         p.t = rand_flight()
         p.action = ""
         p.fault = False
 
 # -----------------------------
-# Deterministic priority rules
+# Priority rules
 # 1) Imminent landing (<15s) wins beacon
 # 2) Critical issue
-# 3) Loading now (least time remaining)
+# 3) Loading/Fixing now (least time remaining)
 # 4) Other issues
 # 5) Landing soon (<=30s)
 # 6) Idle message
@@ -173,13 +178,12 @@ elif critical:
     beacon_hint = "Resolve immediately while at base"
     beacon_class = "u-red"
 elif loading_now:
-    p = min(loading_now, key=lambda x: x.t)  # least time left is most urgent
+    p = min(loading_now, key=lambda x: x.t)
     beacon_title = "LOAD NOW"
     beacon_pad = p.pad
-    nxt = p.action if p.action.isdigit() else ""
-    beacon_sub = f"Load {nxt}" if nxt else "Loading"
+    beacon_sub = f"{'Fixing' if p.phase=='FIXING' else 'Loading'} • {p.t}s left"
     beacon_order = f"{storage_emoji(p.storage)} {p.order}"
-    beacon_hint = f"{p.t}s remaining on ground"
+    beacon_hint = "Active turnaround on ground"
     beacon_class = "u-amber"
 elif noncrit_issues:
     p = max(noncrit_issues, key=lambda x: severity(x.action))
@@ -199,24 +203,19 @@ elif landing_soon:
     beacon_class = "u-neutral"
 
 def item_html(p: PadState, label: str, meta: str, tag: str) -> str:
-    return f"""
-    <div class="item {tag}">
+    return f"""<div class="item {tag}">
       <div class="item-left">
         <div class="pad">{p.pad}</div>
         <div class="desc">{label}</div>
       </div>
       <div class="meta">{meta}</div>
-    </div>
-    """
+    </div>"""
 
-# LOADING NOW list (show next order number + timer)
+
 loading_items = ""
 if loading_now:
     for p in sorted(loading_now, key=lambda x: x.t)[:4]:
-        nxt = p.action if p.action.isdigit() else ""
-        label = "Fixing" if p.phase == "FIXING" else "Load"
-        if label == "Load" and nxt:
-            label = f"Load {nxt}"
+        label = "Fixing" if p.phase == "FIXING" else "Loading"
         meta = f"{p.t}s • {storage_emoji(p.storage)} {p.order}"
         loading_items += item_html(p, label, meta, "tag-amber")
 
@@ -241,6 +240,7 @@ for p in sorted(idle_candidates, key=lambda x: x.pad)[:3]:
     meta = "In flight" if p.phase == "FLIGHT" else "At base"
     idle_items += item_html(p, "Idle", meta, "tag-gray")
 
+# Counts (simple)
 at_base = sum(1 for p in pads if p.phase in ("LANDING", "LOADING", "FIXING"))
 arriving = sum(1 for p in pads if p.phase == "FLIGHT")
 cancelled = 0
@@ -248,44 +248,32 @@ cancelled = 0
 # Sections: hide empties
 sections_html = ""
 if critical_items:
-    sections_html += f"""
-    <div class="section">
+    sections_html += f"""<div class="section">
       <div class="section-h h-critical">🔴 CRITICAL</div>
       <div class="items">{critical_items}</div>
-    </div>
-    """
-
+    </div>"""
 if issues_items:
-    sections_html += f"""
-    <div class="section">
+    sections_html += f"""<div class="section">
       <div class="section-h h-issues">⚠️ ATTENTION</div>
       <div class="items">{issues_items}</div>
-    </div>
-    """
-
+    </div>"""
 if loading_items:
-    sections_html += f"""
-    <div class="section">
+    sections_html += f"""<div class="section">
       <div class="section-h h-loading">🟡 LOADING NOW</div>
       <div class="items">{loading_items}</div>
-    </div>
-    """
+    </div>"""
 
 # Landing soon always shown
-sections_html += f"""
-<div class="section">
+sections_html += f"""<div class="section">
   <div class="section-h h-landing">🟠 LANDING SOON</div>
   <div class="items">{landing_items}</div>
-</div>
-"""
+</div>"""
 
 if idle_items:
-    sections_html += f"""
-    <div class="section">
+    sections_html += f"""<div class="section">
       <div class="section-h h-idle">⚪ IDLE</div>
       <div class="items">{idle_items}</div>
-    </div>
-    """
+    </div>"""
 
 pulse_class = "pulse" if pulse else ""
 pad_line = f"<div class='beacon-pad'>➡ {beacon_pad}</div>" if beacon_pad else ""
@@ -296,8 +284,7 @@ if beacon_order:
     rest = parts[1] if len(parts) > 1 else ""
     order_line = f"<div class='beacon-order'><span class='emo'>{emo}</span>{rest}</div>"
 
-page = f"""
-<!doctype html>
+page = f"""<!doctype html>
 <html>
 <head>
 <meta charset="utf-8"/>
@@ -317,7 +304,7 @@ page = f"""
   }}
   .wall {{
     display: grid;
-    grid-template-columns: 60% 40%;
+    grid-template-columns: 40% 60%;
     gap: 14px;
     align-items: stretch;
     padding: 0 8px 8px 8px;
@@ -377,14 +364,14 @@ page = f"""
     border-radius: 16px;
     border: 1px solid #e5e7eb;
     background:#ffffff;
-    padding: 10px 12px;
+    padding: 12px 14px;
     display: flex;
     justify-content: space-between;
-    font-size: 18px;
-    font-weight: 900;
+    font-size: 22px;
+    font-weight: 1000;
     color:#111827;
   }}
-  .k {{ color:#6b7280; font-weight: 800; margin-right: 8px; }}
+  .k {{ color:#6b7280; font-weight: 900; margin-right: 10px; }}
 </style>
 </head>
 <body>
