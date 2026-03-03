@@ -338,11 +338,19 @@ def footer_html(at_base: int, arriving_soon: int, cancelled: int) -> str:
 CSS = """
 <style>
 :root{
-  --bg:#0a0d12;
-  --panel:#0f141d;
-  --ink:#f5f7fb;
-  --muted:#a6afbf;
+  --bg:#f4f6f8;
+  --panel:#ffffff;
+  --ink:#1a1f2b;
+  --muted:#6b7483;
+
   --critical:#b51d1d;
+  --critical-soft:#ffeaea;
+
+  --active:#c7a100;
+  --active-soft:#fff7d6;
+
+  --queue:#8a94a6;
+  --queue-soft:#f1f3f6;
 }
 body{background:var(--bg);}
 
