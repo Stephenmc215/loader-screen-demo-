@@ -223,14 +223,14 @@ def list_items_with_more(items: List[str], max_visible: int = 3) -> str:
     return html
 
 
-def status_item(pad: str, text: str) -> str:
+def status_item(pad: str, left: str, right: str) -> str:
     return f"""
 <div class="sitem">
   <div class="spad">{pad}</div>
-  <div class="stext">{text}</div>
+  <div class="sleft">{left}</div>
+  <div class="sright">{right}</div>
 </div>
 """
-
 
 def section(title: str, kind: str, items_html: str) -> str:
     return f"""
@@ -246,7 +246,7 @@ def build_status_stack(pads: List[PadState]) -> str:
         [p for p in pads if p.phase == "AT_BASE" and p.issue and p.severity == "critical"],
         key=lambda x: x.pad
     )
-    crit_items = [status_item(p.pad, f"{p.issue} • {p.storage} {p.order_next}") for p in critical]
+    crit_items = [status_item(p.pad, f"{p.issue}", f"{p.storage} {p.order_next}") for p in critical]
 
     # ACTIVE / LOADING includes attention too (still active work), with attention first
     active = sorted(
@@ -256,12 +256,12 @@ def build_status_stack(pads: List[PadState]) -> str:
     act_items: List[str] = []
     for p in active:
         if p.issue and p.severity == "attention":
-            act_items.append(status_item(p.pad, f"{p.issue} • {p.storage} {p.order_next}"))
+            act_items.append(status_item(p.pad, f"{p.issue}", f"{p.storage} {p.order_next}"))
         else:
-            act_items.append(status_item(p.pad, f"{p.remaining}s • {p.storage} {p.order_next}"))
+            act_items.append(status_item(p.pad, f"{p.remaining}s", f"{p.storage} {p.order_next}"))
 
     queue = sorted([p for p in pads if p.phase == "COLLECTING"], key=lambda x: x.remaining)
-    q_items = [status_item(p.pad, f"{p.remaining}s • {p.storage} {p.order_next}") for p in queue]
+    q_items = [status_item(p.pad, f"{p.remaining}s", f"{p.storage} {p.order_next}") for p in queue]
 
     html = ""
     if crit_items:
@@ -272,7 +272,7 @@ def build_status_stack(pads: List[PadState]) -> str:
         html += section("⚪ QUEUE", "t-queue", list_items_with_more(q_items, 3))
 
     if not html.strip():
-        html = section("⚪ QUEUE", "t-queue", status_item("✓", "All clear"))
+        html = section("⚪ QUEUE", "t-queue", status_item("✓", "All clear", ""))
 
     return html
 
@@ -338,19 +338,11 @@ def footer_html(at_base: int, arriving_soon: int, cancelled: int) -> str:
 CSS = """
 <style>
 :root{
-  --bg:#f4f6f8;
-  --panel:#ffffff;
-  --ink:#1a1f2b;
-  --muted:#6b7483;
-
+  --bg:#0a0d12;
+  --panel:#0f141d;
+  --ink:#f5f7fb;
+  --muted:#a6afbf;
   --critical:#b51d1d;
-  --critical-soft:#ffeaea;
-
-  --active:#c7a100;
-  --active-soft:#fff7d6;
-
-  --queue:#8a94a6;
-  --queue-soft:#f1f3f6;
 }
 body{background:var(--bg);}
 
@@ -376,9 +368,9 @@ body{background:var(--bg);}
   color: var(--ink);
   font-weight: 900;
 }
-.topstrip .ts-left{font-size:48px; text-align:left; opacity:0.95;}
-.topstrip .ts-mid{font-size:42px; text-align:center; color:var(--muted);}
-.topstrip .ts-right{font-size:48px; text-align:right; letter-spacing:1px; opacity:0.95;}
+.topstrip .ts-left{font-size:48px; text-align:left; color:rgba(255,255,255,0.95);}
+.topstrip .ts-mid{font-size:42px; text-align:center; color:rgba(255,255,255,0.70);}
+.topstrip .ts-right{font-size:48px; text-align:right; letter-spacing:1px; color:rgba(255,255,255,0.95);}
 .topstrip.degraded{background: var(--critical);}
 
 .mainrow{
@@ -489,35 +481,10 @@ body{background:var(--bg);}
   gap: 1vh;
 }
 
-.sitem{
-  display:flex;
-  align-items:center;
-  gap: 1vw;
-}
-
-.spad{
-  width: 72px;
-  height: 72px;
-  border-radius: 16px;
-  background: rgba(255,255,255,0.06);
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  font-size: 52px;
-  font-weight: 1000;
-  color: var(--ink);
-}
-
-.stext{
-  font-size: 48px;
-  font-weight: 900;
-  color: var(--ink);
-  opacity: 0.95;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
+.sitem{display:grid; grid-template-columns: 92px 1fr auto; align-items:center; column-gap: 18px;}
+.spad{width: 72px; height: 72px; border-radius: 16px; background: rgba(0,0,0,0.04); display:flex; align-items:center; justify-content:center; font-size: 52px; font-weight: 1000; color: var(--ink);}
+.sleft{font-size: 48px; font-weight: 900; color: var(--ink); line-height:1; white-space: nowrap; overflow:hidden; text-overflow: ellipsis;}
+.sright{font-size: 48px; font-weight: 1000; color: var(--ink); line-height:1; font-variant-numeric: tabular-nums; letter-spacing:0.5px; text-align:right; white-space: nowrap;}
 .more{
   margin-top: 0.6vh;
   font-size: 44px;
