@@ -51,15 +51,12 @@ ATTN_PROB = 0.12
 
 CRITICAL_ISSUES = [
     "Change drone",
-    "Pad blocked",
-    "Comms lost",
+    "Reboot drone",
 ]
 
 ATTN_ISSUES = [
     "Repress pad",
-    "Unit expired",
     "Change cassette",
-    "Reboot drone",
 ]
 
 
