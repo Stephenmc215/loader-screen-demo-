@@ -269,9 +269,9 @@ CSS = """
   color: #9aa3b2;
   margin-bottom: 18px;
 }
-.bigrow{display:flex; align-items:center; gap: 28px; margin: 4px 0 18px 0;}
+.bigrow{display:flex; align-items:center; justify-content:flex-start; gap:0; margin: 6px 0 18px 0;}
 .arrow{font-size: clamp(84px, 7vw, 150px); font-weight: 900; color: var(--ink); opacity: 0.95;}
-.padbig{font-size: clamp(150px, 12vw, 280px); font-weight: 1000; color: var(--ink); letter-spacing: -2px;}
+.padbig{font-size: clamp(150px, 12vw, 280px); font-weight: 1000; color: var(--ink); letter-spacing: -2px; letter-spacing:0.02em;}
 .actiontext{font-size: clamp(44px, 4.2vw, 88px); font-weight: 1000; color: var(--ink); line-height: 1.04;}
 .subline{margin-top: 14px; font-size: clamp(18px, 1.9vw, 30px); font-weight: 800; color: var(--muted);}
 .smallmeta{margin-top: 18px; font-size: clamp(20px, 2.0vw, 32px); font-weight: 900; color: var(--muted);}
@@ -439,7 +439,7 @@ elif kind == "attention" and primary_pad is not None:
     primary_html = (
         '<div class="primary">'
         '<div class="kicker">NEXT ACTION</div>'
-        f'<div class="bigrow"><div class="arrow">→</div><div class="padbig">{primary_pad.pad}</div></div>'
+        f'<div class="bigrow"><div class="padbig">{primary_pad.pad}</div></div>'
         f'<div class="actiontext">{primary_label}</div>'
         f'<div class="smallmeta">{primary_pad.storage} {primary_pad.order_id}</div>'
         f'<div class="subline">Resolve: {primary_pad.remaining}s</div>'
@@ -449,7 +449,7 @@ elif kind == "load" and primary_pad is not None:
     primary_html = (
         '<div class="primary">'
         '<div class="kicker">NEXT ACTION</div>'
-        f'<div class="bigrow"><div class="arrow">→</div><div class="padbig">{primary_pad.pad}</div></div>'
+        f'<div class="bigrow"><div class="padbig">{primary_pad.pad}</div></div>'
         '<div class="actiontext">Load order</div>'
         f'<div class="smallmeta">{primary_pad.storage} {primary_pad.order_id}</div>'
         f'<div class="subline">{primary_pad.phase.replace("_"," ").title()} • {primary_pad.remaining}s</div>'
@@ -459,7 +459,7 @@ else:
     primary_html = (
         '<div class="primary">'
         '<div class="kicker">NEXT ACTION</div>'
-        '<div class="bigrow"><div class="arrow">→</div><div class="padbig">—</div></div>'
+        '<div class="bigrow"><div class="padbig">—</div></div>'
         '<div class="actiontext">All clear</div>'
         '<div class="subline">Waiting for next order</div>'
         '</div>'
