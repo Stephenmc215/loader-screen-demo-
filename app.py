@@ -340,6 +340,7 @@ def footer_html(at_base: int, arriving_soon: int, cancelled: int) -> str:
 # ----------------------------
 CSS = """
 <style>
+*{box-sizing:border-box;}
 :root{
   --bg:#ffffff;
   --ink:#0b1320;
@@ -349,6 +350,7 @@ CSS = """
   --line:#e8ebf0;
 
   --red:#b51d1d;
+  --navy:#1f3f8a;
 
   --crit_bg:#fbe3e3; --crit_line:#efb1b1; --crit_text:#7a1212;
   --load_bg:#fff7cf; --load_line:#f0e39c; --load_text:#6a5400;
@@ -361,38 +363,40 @@ CSS = """
 body{background:var(--bg);}
 
 .main .block-container{
-  padding-top:0.5rem;
-  padding-bottom:0.5rem;
+  padding-top:0.4rem;
+  padding-bottom:0.4rem;
   max-width: 1800px;
 }
 
-/* Make the whole layout fit the viewport (prevents footer overlay) */
+/* Fit everything inside viewport */
 .grid{
-  height: calc(100vh - 1rem);
+  height: calc(100vh - 0.8rem);
   display:grid;
   grid-template-rows: 10fr 82fr 8fr;
-  gap: 10px;
+  gap: 8px;
+  min-height: 0;
 }
 
-/* Top status strip (no clock) */
+/* Top strip (navy by default, red when degraded) */
 .topstrip{
-  background:#1f3f8a;
+  background: var(--navy);
   border-radius: 18px;
-  padding: 0 24px;
+  padding: 0 22px;
   display:grid;
   grid-template-columns: 1fr 1.6fr;
   align-items:center;
   font-weight: 1000;
+  min-height:0;
 }
 .topstrip .ts-left{
-  font-size: clamp(20px, 2.6vw, 44px);
+  font-size: clamp(18px, 2.3vw, 40px);
   text-align:left;
   color:rgba(255,255,255,0.95);
 }
 .topstrip .ts-mid{
-  font-size: clamp(18px, 2.2vw, 40px);
+  font-size: clamp(16px, 2.0vw, 36px);
   text-align:right;
-  color:rgba(255,255,255,0.75);
+  color:rgba(255,255,255,0.78);
 }
 .topstrip.degraded{background: var(--red);}
 
@@ -400,9 +404,9 @@ body{background:var(--bg);}
 .mainrow{
   display:grid;
   grid-template-columns: 65% 35%;
-  gap: 10px;
+  gap: 8px;
   align-items:stretch;
-  min-height: 0; /* allow children to shrink */
+  min-height: 0;
 }
 
 /* Primary */
@@ -414,6 +418,7 @@ body{background:var(--bg);}
   align-items:center;
   justify-content:center;
   min-height: 0;
+  overflow:hidden;
 }
 .primarywrap.urgent{
   background: var(--urgent_bg);
@@ -423,7 +428,7 @@ body{background:var(--bg);}
 .primary{
   width: 100%;
   height: 100%;
-  padding: clamp(14px, 2.2vh, 28px) clamp(14px, 2.2vw, 34px);
+  padding: clamp(12px, 1.8vh, 24px) clamp(12px, 1.8vw, 28px);
   display:flex;
   flex-direction:column;
   justify-content:center;
@@ -431,44 +436,46 @@ body{background:var(--bg);}
   min-height: 0;
 }
 .p-next{
-  font-size: clamp(22px, 3vw, 48px);
+  font-size: clamp(20px, 2.6vw, 44px);
   font-weight: 1000;
   letter-spacing: 1px;
   color: var(--muted);
-  margin-bottom: clamp(10px, 1.6vh, 18px);
+  margin-bottom: clamp(8px, 1.2vh, 14px);
 }
-.p-row{display:flex; align-items:center; gap: clamp(18px, 2.4vw, 44px);}
+.p-row{display:flex; align-items:center; gap: clamp(14px, 2.0vw, 36px);}
 .p-arrow{
-  font-size: clamp(90px, 10vw, 190px);
+  font-size: clamp(80px, 9vw, 170px);
   font-weight: 1000; line-height:1; color: var(--ink); opacity:0.95;
 }
 .p-pad{
-  font-size: clamp(140px, 18vw, 320px);
+  font-size: clamp(120px, 16vw, 300px);
   font-weight: 1000; line-height:0.9; color: var(--ink);
 }
 .p-action{
-  margin-top: clamp(8px, 1.4vh, 16px);
-  font-size: clamp(38px, 6vw, 96px);
+  margin-top: clamp(6px, 1.1vh, 12px);
+  font-size: clamp(34px, 5.4vw, 88px);
   font-weight: 1000; line-height: 1.05; color: var(--ink);
 }
 .p-count{
-  margin-top: clamp(6px, 1.1vh, 12px);
-  font-size: clamp(56px, 9vw, 140px);
+  margin-top: clamp(4px, 0.9vh, 10px);
+  font-size: clamp(52px, 8.2vw, 130px);
   font-weight: 1000; line-height: 1; color: var(--ink);
 }
 .p-sub{
-  margin-top: clamp(10px, 1.5vh, 16px);
-  font-size: clamp(20px, 3.6vw, 48px);
+  margin-top: clamp(8px, 1.2vh, 14px);
+  font-size: clamp(18px, 3.2vw, 44px);
   font-weight: 1000;
   color: var(--muted);
 }
 
-/* Status stack */
+/* Status stack: prevent jumble by tightening scale + allowing internal scroll */
 .statuswrap{
   display:flex;
   flex-direction:column;
-  gap: 10px;
+  gap: 8px;
   min-height: 0;
+  overflow:auto; /* if content exceeds, scroll instead of overlapping */
+  padding-right: 2px;
 }
 .stack-section{
   background: var(--card);
@@ -477,11 +484,10 @@ body{background:var(--bg);}
   overflow:hidden;
   display:flex;
   flex-direction:column;
-  min-height: 0;
 }
 .stack-title{
-  padding: 12px 16px;
-  font-size: clamp(20px, 3.2vw, 48px);
+  padding: 10px 14px;
+  font-size: clamp(18px, 2.6vw, 36px);
   font-weight: 1000;
   letter-spacing: 0.8px;
 }
@@ -490,36 +496,35 @@ body{background:var(--bg);}
 .t-queue{background: var(--queue_bg); color: var(--queue_text); border-bottom: 1px solid var(--queue_line);}
 
 .stack-items{
-  padding: 12px 14px 14px 14px;
+  padding: 10px 12px 12px 12px;
   display:flex;
   flex-direction:column;
-  gap: 10px;
-  min-height: 0;
+  gap: 8px;
 }
 
 .sitem{
   display:grid;
-  grid-template-columns: clamp(60px, 5vw, 88px) 1fr auto;
+  grid-template-columns: clamp(54px, 4.4vw, 76px) 1fr auto;
   align-items:center;
-  column-gap: 14px;
-  padding: 10px 12px;
+  column-gap: 12px;
+  padding: 8px 10px;
   border-radius: 14px;
   border: 1px solid var(--queue_line);
   background: #ffffff;
 }
 .spad{
-  width: clamp(46px, 4.4vw, 70px);
-  height: clamp(46px, 4.4vw, 70px);
-  border-radius: 16px;
+  width: clamp(42px, 3.8vw, 62px);
+  height: clamp(42px, 3.8vw, 62px);
+  border-radius: 14px;
   background: #fff;
   border: 1px solid rgba(0,0,0,0.10);
   display:flex; align-items:center; justify-content:center;
-  font-size: clamp(22px, 3vw, 44px);
+  font-size: clamp(18px, 2.5vw, 34px);
   font-weight: 1000;
   color: var(--ink);
 }
 .sleft{
-  font-size: clamp(18px, 2.8vw, 40px);
+  font-size: clamp(16px, 2.3vw, 32px);
   font-weight: 1000;
   color: var(--ink);
   line-height:1;
@@ -528,36 +533,37 @@ body{background:var(--bg);}
   text-overflow: ellipsis;
 }
 .sright{
-  font-size: clamp(18px, 2.8vw, 40px);
+  font-size: clamp(16px, 2.3vw, 32px);
   font-weight: 1000;
   color: var(--ink);
   line-height:1;
   font-variant-numeric: tabular-nums;
-  letter-spacing:0.5px;
+  letter-spacing:0.4px;
   text-align:right;
   white-space: nowrap;
 }
 
 .more{
   margin-top: 2px;
-  font-size: clamp(16px, 2.4vw, 34px);
+  font-size: clamp(14px, 2.0vw, 26px);
   font-weight: 1000;
   color: var(--muted);
   padding-left: 6px;
 }
 
-/* Footer (no clock) */
+/* Footer */
 .footer{
   background: #ffffff;
   border: 1px solid var(--line);
   border-radius: 18px;
-  padding: 0 24px;
+  padding: 0 22px;
   display:flex;
   align-items:center;
   justify-content:space-between;
   color: #6b7483;
-  font-size: clamp(16px, 2.2vw, 28px);
+  font-size: clamp(14px, 1.9vw, 24px);
   font-weight: 1000;
+  min-height:0;
 }
 .footer .k{color:#6b7483; margin-right:10px;}
 </style>
