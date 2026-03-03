@@ -313,15 +313,16 @@ CSS = """
 }
 .item-left{display:flex; align-items:center; gap: 12px; min-width: 0;}
 .pad{
-  width: 50px; height: 50px;
-  border-radius: 14px;
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
   border: 1px solid rgba(0,0,0,0.10);
   background:#fff;
   display:flex;
   align-items:center;
   justify-content:center;
-  font-weight: 900;
-  font-size: 22px;
+  font-weight: 1000;
+  font-size: 28px;
   color: var(--ink);
   flex: 0 0 auto;
 }
