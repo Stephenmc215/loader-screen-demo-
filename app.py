@@ -338,23 +338,20 @@ def footer_html(at_base: int, arriving_soon: int, cancelled: int) -> str:
 CSS = """
 <style>
 :root{
-  /* Pastel ops palette (matches v10-style screenshots) */
-  --bg:#ffffff;
-  --ink:#0b1320;
-  --muted:#5b6472;
+  --bg:#f4f6f8;
+  --panel:#ffffff;
+  --ink:#111827;
+  --muted:#6b7280;
+  --line:#e5e7eb;
 
-  --card:#ffffff;
-  --line:#e8ebf0;
+  --critical:#b51d1d;
+  --critical_soft:#ffeaea;
 
-  --blue:#1f3f8a;
-  --red:#b51d1d;
+  --active:#a57d00;
+  --active_soft:#fff4cc;
 
-  --crit_bg:#fbe3e3; --crit_line:#efb1b1; --crit_text:#7a1212;
-  --attn_bg:#e7efff; --attn_line:#b9d3ff; --attn_text:#143d8a;
-  --load_bg:#fff7cf; --load_line:#f0e39c; --load_text:#6a5400;
-  --queue_bg:#f4f5f7; --queue_line:#e1e3e8; --queue_text:#3b4350;
-  --primary_bg:#fff7ed; --primary_line:#f1dcc7;
-  --urgent_bg:#fff0f0;
+  --queue:#6b7280;
+  --queue_soft:#f1f3f6;
 }
 
 /* page background */
@@ -373,7 +370,7 @@ body{background:var(--bg);}
   gap: 1.2vh;
 }
 
-/* Top status strip – neutral by default; red only when degraded */
+/* Top status strip: neutral dark, high contrast */
 .topstrip{
   background:#111722;
   border-radius: 18px;
@@ -381,12 +378,12 @@ body{background:var(--bg);}
   display:grid;
   grid-template-columns: 1fr 1.4fr 1fr;
   align-items:center;
-  font-weight: 1000;
+  font-weight: 900;
 }
 .topstrip .ts-left{font-size:48px; text-align:left; color:rgba(255,255,255,0.95);}
 .topstrip .ts-mid{font-size:42px; text-align:center; color:rgba(255,255,255,0.70);}
 .topstrip .ts-right{font-size:48px; text-align:right; letter-spacing:1px; color:rgba(255,255,255,0.95);}
-.topstrip.degraded{background: var(--red);}
+.topstrip.degraded{background: var(--critical);}
 
 /* Main split 65/35 */
 .mainrow{
@@ -397,11 +394,10 @@ body{background:var(--bg);}
   height: 82vh;
 }
 
-/* Primary action area – large type; subtle panel (no heavy boxes) */
+/* Primary action area – no boxes, let size do the work */
 .primarywrap{
-  background: var(--primary_bg);
+  background: transparent;
   border-radius: 18px;
-  border: 2px solid var(--primary_line);
   display:flex;
   align-items:center;
   justify-content:center;
@@ -419,7 +415,7 @@ body{background:var(--bg);}
 
 .p-next{
   font-size: 56px;
-  font-weight: 1000;
+  font-weight: 900;
   letter-spacing: 1px;
   color: var(--muted);
   margin-bottom: 2vh;
@@ -433,7 +429,7 @@ body{background:var(--bg);}
 
 .p-arrow{
   font-size: 220px;
-  font-weight: 1000;
+  font-weight: 900;
   line-height: 1;
   color: var(--ink);
   opacity: 0.95;
@@ -465,17 +461,11 @@ body{background:var(--bg);}
 .p-sub{
   margin-top: 1.5vh;
   font-size: 54px;
-  font-weight: 1000;
+  font-weight: 900;
   color: var(--muted);
 }
 
-/* If degraded, make the primary area urgent (soft red, not full-screen banner) */
-.primarywrap.urgent{
-  background: var(--urgent_bg);
-  border: 4px solid var(--red);
-}
-
-/* Status stack on right */
+/* Status stack on right – LIGHT cards */
 .statuswrap{
   background: transparent;
   border-radius: 18px;
@@ -485,7 +475,7 @@ body{background:var(--bg);}
 }
 
 .stack-section{
-  background: var(--card);
+  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 18px;
   overflow:hidden;
@@ -500,9 +490,9 @@ body{background:var(--bg);}
   letter-spacing: 0.8px;
 }
 
-.t-critical{background: var(--crit_bg); color: var(--crit_text); border-bottom: 1px solid var(--crit_line);}
-.t-active{background: var(--load_bg); color: var(--load_text); border-bottom: 1px solid var(--load_line);}
-.t-queue{background: var(--queue_bg); color: var(--queue_text); border-bottom: 1px solid var(--queue_line);}
+.t-critical{background: var(--critical_soft); color: var(--critical); border-bottom: 1px solid rgba(181,29,29,0.20);}
+.t-active{background: var(--active_soft); color: #5a4700; border-bottom: 1px solid rgba(165,125,0,0.20);}
+.t-queue{background: var(--queue_soft); color: var(--queue); border-bottom: 1px solid rgba(107,114,128,0.18);}
 
 .stack-items{
   padding: 1.2vh 1.2vw 1.6vh 1.2vw;
@@ -517,18 +507,15 @@ body{background:var(--bg);}
   grid-template-columns: 92px 1fr auto;
   align-items:center;
   column-gap: 18px;
-  padding: 0.7vh 0.6vw;
-  border-radius: 14px;
-  border: 1px solid var(--queue_line);
-  background: #ffffff;
+  padding: 0.6vh 0.2vw;
 }
 
 .spad{
   width: 72px;
   height: 72px;
   border-radius: 16px;
-  background: #fff;
-  border: 1px solid rgba(0,0,0,0.10);
+  background: rgba(17,24,39,0.06);
+  border: 1px solid rgba(17,24,39,0.10);
   display:flex;
   align-items:center;
   justify-content:center;
@@ -539,7 +526,7 @@ body{background:var(--bg);}
 
 .sleft{
   font-size: 48px;
-  font-weight: 1000;
+  font-weight: 900;
   color: var(--ink);
   line-height:1;
   white-space: nowrap;
@@ -561,7 +548,7 @@ body{background:var(--bg);}
 .more{
   margin-top: 0.2vh;
   font-size: 44px;
-  font-weight: 1000;
+  font-weight: 900;
   color: var(--muted);
   padding-left: 0.4vw;
 }
@@ -575,18 +562,18 @@ body{background:var(--bg);}
   display:flex;
   align-items:center;
   justify-content:space-between;
-  color: #6b7483;
+  color: var(--muted);
   font-size: 30px;
-  font-weight: 1000;
+  font-weight: 900;
 }
 
 .footer .k{
-  color: #6b7483;
+  color: rgba(107,114,128,0.95);
   margin-right: 10px;
 }
 
 .footer .clock{
-  color: rgba(11,19,32,0.85);
+  color: rgba(17,24,39,0.85);
   letter-spacing: 1px;
 }
 </style>
@@ -615,7 +602,6 @@ st.markdown(CSS, unsafe_allow_html=True)
 kind, primary_pad, primary_label = pick_primary(pads)
 
 top_html = top_strip_html(pads, state)
-primarywrap_cls = "primarywrap urgent" if degraded else "primarywrap"
 primary_html = build_primary_action(kind, primary_pad, primary_label)
 stack_html = build_status_stack(pads)
 
@@ -630,7 +616,7 @@ st.markdown(
 <div class="grid">
   {top_html}
   <div class="mainrow">
-    <div class="{primarywrap_cls}">{primary_html}</div>
+    <div class="primarywrap">{primary_html}</div>
     <div class="statuswrap">{stack_html}</div>
   </div>
   {foot_html}
