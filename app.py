@@ -396,11 +396,9 @@ state = st.session_state["wall_state"]
 
 try:
     from streamlit_autorefresh import st_autorefresh
-
     st_autorefresh(interval=1000, key="tick")
-except Exception:
-    pass
-
+except Exception as e:
+    st.error(f"Auto-refresh not running: {e}")
 tick(state)
 
 pads_list = list(state["pads"].values())
