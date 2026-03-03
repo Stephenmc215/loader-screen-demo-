@@ -1,250 +1,335 @@
 import random
 import time
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
+
 import streamlit as st
 
 # ============================================================
-# Loader Wall Screen — Blank Layout (V4)
-# Clean canvas • 6 pads • No orders moving
-# Top bar: 5% alert, else shows RPP + Wind (5–10 m/s)
-# Typography: sleeker / less blocky for browser viewing
+# Loader Wall Screen – Clean Layout + Moving Orders (demo)
+# 16:9 grid:
+#   Top strip (navy) 10%
+#   Main: Primary (65%) | Status stack (35%)
+#   Footer 8%: At Base | Arriving Soon | Cancelled
+# Notes:
+# - Arriving Soon = COLLECTING (collector has order)
+# - At Base = AT_BASE (order at base waiting to be loaded)
+# - Cancelled = 0 (demo)
+# - Right stack: CRITICAL / ACTIVE-LOADING / QUEUE
 # ============================================================
 
-st.set_page_config(page_title="Loader Wall Screen (Blank)", layout="wide")
+st.set_page_config(page_title="Loader Wall Screen", layout="wide")
 
 # ----------------------------
-# Alert config
+# Demo configuration
 # ----------------------------
+PADS = list("ABCDEF")
+ORDER_MIN, ORDER_MAX, ORDER_STEP = 200, 999, 1
+STORAGE_EMOJI = ["🔥", "📦", "🧊"]
+
+# Phase durations (seconds)
+COLLECT_MIN, COLLECT_MAX = 25, 70
+ATBASE_MIN, ATBASE_MAX = 12, 35
+LOAD_MIN, LOAD_MAX = 20, 55
+FIX_MIN, FIX_MAX = 25, 55
+
+SIM_SPEED = 1  # how many simulation seconds elapse per real second tick
+
 ALERT_CHANCE = 0.05
 ALERT_MESSAGES = [
     "Heavy rain — wipe lidar",
     "Space weather over limits",
-    "Icing pre‑flight checklist",
+    "Icing pre-flight checklist",
     "Weather above limits — put everything in the heat",
     "Containment breach — grounding",
 ]
 
-def pick_top_strip(rng: random.Random) -> tuple[str | None, int]:
-    """Return (alert_message_or_None, wind_ms)."""
-    wind_ms = rng.randint(5, 10)
-    if rng.random() < ALERT_CHANCE:
-        return rng.choice(ALERT_MESSAGES), wind_ms
-    return None, wind_ms
+# ----------------------------
+# Model
+# ----------------------------
+@dataclass
+class PadState:
+    pad: str
+    phase: str  # COLLECTING | AT_BASE | LOADING | CRITICAL
+    remaining: int
+    order_id: int
+    storage: str
+    issue: Optional[str] = None
 
-# Keep alert stable for a short window so it doesn't flicker every refresh
-ALERT_HOLD_SECONDS = 8
 
-def get_state() -> dict:
-    if "blank_state" not in st.session_state:
-        st.session_state["blank_state"] = {
-            "rng": random.Random(int(time.time())),
-            "alert_until": 0.0,
-            "alert_msg": None,
-            "wind_ms": 7,
-        }
-    return st.session_state["blank_state"]
+def _rand_dur(rng: random.Random, lo: int, hi: int) -> int:
+    return rng.randint(lo, hi)
 
-def update_top_strip(state: dict) -> None:
+
+def _next_order(rng: random.Random) -> int:
+    return rng.randint(ORDER_MIN, ORDER_MAX)
+
+
+def init_state() -> Dict:
+    seed = int(time.time())
+    rng = random.Random(seed)
+
+    pads: Dict[str, PadState] = {}
+    for p in PADS:
+        pads[p] = PadState(
+            pad=p,
+            phase="COLLECTING",
+            remaining=_rand_dur(rng, COLLECT_MIN, COLLECT_MAX),
+            order_id=_next_order(rng),
+            storage=rng.choice(STORAGE_EMOJI),
+        )
+
+    return {
+        "rng": rng,
+        "pads": pads,
+        "last_tick": time.time(),
+        "wind": rng.randint(5, 10),
+        "wind_next": time.time() + 8,
+        "alert_msg": None,
+        "alert_until": 0.0,
+        "alert_next_check": time.time() + 6,
+    }
+
+
+def tick(state: Dict) -> None:
     now = time.time()
+    last = state.get("last_tick", now)
+    dt = int(now - last)
+    if dt <= 0:
+        return
+    state["last_tick"] = now
+
     rng: random.Random = state["rng"]
+    pads: Dict[str, PadState] = state["pads"]
 
-    # If current alert expired, re-roll
-    if now >= state.get("alert_until", 0):
-        alert_msg, wind_ms = pick_top_strip(rng)
-        state["alert_msg"] = alert_msg
-        state["wind_ms"] = wind_ms
-        state["alert_until"] = now + ALERT_HOLD_SECONDS
+    # Wind update (slow-ish)
+    if now >= state.get("wind_next", 0):
+        state["wind"] = rng.randint(5, 10)
+        state["wind_next"] = now + 8
 
-state = get_state()
+    # Alert logic: 5% chance to show an alert when we check; otherwise show RPP + wind.
+    if now >= state.get("alert_next_check", 0):
+        if rng.random() < ALERT_CHANCE:
+            state["alert_msg"] = rng.choice(ALERT_MESSAGES)
+            state["alert_until"] = now + 10  # show alert for ~10s
+        else:
+            # Only clear if not currently showing one
+            if now >= state.get("alert_until", 0):
+                state["alert_msg"] = None
+        state["alert_next_check"] = now + 6
 
-# Autorefresh
-try:
-    from streamlit_autorefresh import st_autorefresh
-    st_autorefresh(interval=1000, key="blank_tick")
-except Exception:
-    pass
+    # Expire alert when time is up
+    if state.get("alert_msg") and now >= state.get("alert_until", 0):
+        state["alert_msg"] = None
 
-update_top_strip(state)
-alert_msg = state["alert_msg"]
-wind_ms = state["wind_ms"]
+    # Simulate each second
+    for _ in range(dt * SIM_SPEED):
+        for ps in pads.values():
+            ps.remaining = max(0, ps.remaining - 1)
+
+            if ps.remaining != 0:
+                continue
+
+            # Transitions
+            if ps.phase == "COLLECTING":
+                ps.phase = "AT_BASE"
+                ps.remaining = _rand_dur(rng, ATBASE_MIN, ATBASE_MAX)
+
+            elif ps.phase == "AT_BASE":
+                # Start loading; occasional issue routes to CRITICAL
+                if rng.random() < 0.12:
+                    ps.phase = "CRITICAL"
+                    ps.issue = rng.choice([
+                        "Comms lost",
+                        "Repress pad",
+                        "Unit expired",
+                        "Change cassette",
+                        "Reboot drone",
+                    ])
+                    ps.remaining = _rand_dur(rng, FIX_MIN, FIX_MAX)
+                else:
+                    ps.phase = "LOADING"
+                    ps.issue = None
+                    ps.remaining = _rand_dur(rng, LOAD_MIN, LOAD_MAX)
+
+            elif ps.phase == "CRITICAL":
+                # After fix, go back to loading with a short load time
+                ps.phase = "LOADING"
+                ps.issue = None
+                ps.remaining = _rand_dur(rng, 12, 28)
+
+            elif ps.phase == "LOADING":
+                # Complete load -> collector takes next order
+                ps.phase = "COLLECTING"
+                ps.remaining = _rand_dur(rng, COLLECT_MIN, COLLECT_MAX)
+                ps.order_id = _next_order(rng)
+                ps.storage = rng.choice(STORAGE_EMOJI)
+
 
 # ----------------------------
-# UI (CSS)
+# Priority / UI selection
+# ----------------------------
+def pick_primary(pads: List[PadState]) -> Tuple[str, Optional[PadState], str]:
+    critical = [p for p in pads if p.phase == "CRITICAL"]
+    if critical:
+        p = sorted(critical, key=lambda x: x.pad)[0]
+        return "critical", p, p.issue or "Action required"
+
+    loading = [p for p in pads if p.phase == "LOADING"]
+    if loading:
+        p = sorted(loading, key=lambda x: x.remaining)[0]
+        return "loading", p, "Load order"
+
+    at_base = [p for p in pads if p.phase == "AT_BASE"]
+    if at_base:
+        p = sorted(at_base, key=lambda x: x.remaining)[0]
+        return "at_base", p, "Load order"
+
+    return "calm", None, "All clear"
+
+
+# ----------------------------
+# Styles (sleeker, less blocky)
 # ----------------------------
 CSS = """
 <style>
 :root{
-  --navy:#1f3f8a;
+  --bg:#ffffff;
   --ink:#0b1320;
-  --muted:#6b7483;
-  --card:#ffffff;
-  --line:#e6e9ef;
+  --muted:#667085;
+  --line:#e7ebf2;
+  --navy:#1f3f8a;
+  --shadow: 0 10px 30px rgba(16,24,40,0.06);
 
-  --critical_bg:#fbe3e3;
-  --critical_ink:#7a1212;
-
-  --active_bg:#fff7cf;
-  --active_ink:#6a5400;
-
-  --queue_bg:#f4f5f7;
-  --queue_ink:#3b4350;
-
-  --pad_bg:#ffffff;
-  --shadow: 0 1px 0 rgba(16,24,40,0.06);
+  --crit_bg:#fde8e8; --crit_ink:#7a1212;
+  --act_bg:#fff6cc;  --act_ink:#6a5400;
+  --q_bg:#f2f4f7;    --q_ink:#3b4350;
 }
 
-/* Streamlit container */
-.main .block-container{max-width: 1500px; padding-top: 0.9rem; padding-bottom: 0.9rem;}
-html, body {background:#ffffff;}
+/* Streamlit page */
+.main .block-container{max-width: 1650px; padding-top: 0.9rem; padding-bottom: 1.0rem;}
 
-/* Top strip */
+/* Top strip (10% height) */
 .topstrip{
-  height: 10vh;
-  min-height: 64px;
-  max-height: 92px;
+  height: 10vh; min-height: 68px; max-height: 96px;
   background: var(--navy);
   color: #fff;
   border-radius: 18px;
-  padding: 14px 18px;
+  padding: 16px 22px;
   display:flex;
   align-items:center;
   justify-content:space-between;
-  font-weight: 800;
+  font-weight: 900;
+  letter-spacing: 0.2px;
   box-shadow: var(--shadow);
 }
-.topstrip .left, .topstrip .right{
-  font-size: clamp(18px, 2.0vw, 34px);
-  letter-spacing: 0.2px;
-}
-.topstrip.alert{
-  background: #b51d1d;
-}
+.topstrip .left{font-size: clamp(22px, 2.1vw, 34px);}
+.topstrip .right{font-size: clamp(20px, 1.9vw, 30px); opacity: 0.92;}
+
+.topstrip.alert{background:#b51d1d;}
 
 /* Grid */
 .grid{
-  margin-top: 14px;
+  margin-top: 12px;
   display:grid;
   grid-template-columns: 65% 35%;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: 82vh 8vh;
   gap: 14px;
-  height: 82vh;
-  min-height: 520px;
 }
 
-/* Primary action panel */
+/* Primary */
 .primary{
-  grid-column: 1;
-  grid-row: 1;
-  background: #fff;
+  grid-column: 1; grid-row: 1;
+  background:#fff;
   border: 2px solid var(--line);
   border-radius: 18px;
-  padding: 26px 28px;
+  padding: 34px 34px;
   display:flex;
   flex-direction:column;
   justify-content:center;
+  overflow:hidden;
 }
 .kicker{
-  color:#9aa3b2;
+  font-size: clamp(18px, 1.9vw, 28px);
   font-weight: 900;
-  letter-spacing: 0.10em;
-  font-size: clamp(18px, 1.8vw, 34px);
+  letter-spacing: 0.8px;
+  color: #9aa3b2;
+  margin-bottom: 18px;
 }
-.bigrow{
-  margin-top: 22px;
-  display:flex;
-  align-items:center;
-  gap: 24px;
-}
-.arrow{
-  font-size: clamp(70px, 8vw, 120px);
-  font-weight: 900;
-  color: var(--ink);
-}
-.padbig{
-  font-size: clamp(150px, 16vw, 260px);
-  font-weight: 900;
-  line-height: 0.9;
-  color: var(--ink);
-}
-.actiontext{
-  margin-top: 20px;
-  font-size: clamp(40px, 4.2vw, 70px);
-  font-weight: 900;
-  color: var(--ink);
-  line-height: 1.05;
-}
-.subline{
-  margin-top: 10px;
-  font-size: clamp(18px, 2.0vw, 30px);
-  font-weight: 700;
-  color: var(--muted);
-}
+.bigrow{display:flex; align-items:center; gap: 28px; margin: 4px 0 18px 0;}
+.arrow{font-size: clamp(84px, 7vw, 150px); font-weight: 900; color: var(--ink); opacity: 0.95;}
+.padbig{font-size: clamp(150px, 12vw, 280px); font-weight: 1000; color: var(--ink); letter-spacing: -2px;}
+.actiontext{font-size: clamp(44px, 4.2vw, 88px); font-weight: 1000; color: var(--ink); line-height: 1.04;}
+.subline{margin-top: 14px; font-size: clamp(18px, 1.9vw, 30px); font-weight: 800; color: var(--muted);}
+.smallmeta{margin-top: 18px; font-size: clamp(20px, 2.0vw, 32px); font-weight: 900; color: var(--muted);}
 
-/* Status stack */
+/* Stack */
 .stack{
-  grid-column: 2;
-  grid-row: 1;
+  grid-column: 2; grid-row: 1;
   display:flex;
   flex-direction:column;
   gap: 12px;
+  overflow:hidden;
 }
 .section{
   border: 2px solid var(--line);
   border-radius: 18px;
+  background:#fff;
   overflow:hidden;
-  background: var(--card);
 }
 .section-h{
-  padding: 12px 16px;
-  font-weight: 950;
-  letter-spacing: 0.08em;
-  font-size: clamp(18px, 1.6vw, 28px);
+  padding: 14px 16px;
+  font-size: clamp(18px, 1.6vw, 26px);
+  font-weight: 1000;
+  letter-spacing: 0.6px;
   display:flex;
   align-items:center;
   gap: 10px;
 }
-.dot{
-  width: 18px; height: 18px; border-radius: 50%;
-  box-shadow: inset 0 2px 4px rgba(0,0,0,0.12);
-}
-.h-critical{background: var(--critical_bg); color: var(--critical_ink);}
-.h-critical .dot{background:#d72626;}
-.h-active{background: var(--active_bg); color: var(--active_ink);}
-.h-active .dot{background:#f4b400;}
-.h-queue{background: var(--queue_bg); color: var(--queue_ink);}
-.h-queue .dot{background:#c9ccd3;}
+.dot{width: 18px; height: 18px; border-radius: 999px; background: rgba(0,0,0,0.18);}
+.h-critical{background: var(--crit_bg); color: var(--crit_ink);} 
+.h-active{background: var(--act_bg); color: var(--act_ink);} 
+.h-queue{background: var(--q_bg); color: var(--q_ink);} 
 
-.items{
-  padding: 14px;
-  display:flex;
-  flex-direction:column;
-  gap: 12px;
-}
+.items{padding: 12px; display:flex; flex-direction:column; gap: 10px;}
 .item{
   border: 1px solid var(--line);
   border-radius: 16px;
-  padding: 14px 14px;
+  padding: 12px 12px;
   display:flex;
   align-items:center;
-  gap: 14px;
+  justify-content:space-between;
   background:#fff;
 }
+.item-left{display:flex; align-items:center; gap: 12px; min-width: 0;}
 .pad{
-  width: 52px; height: 52px;
+  width: 50px; height: 50px;
   border-radius: 14px;
   border: 1px solid rgba(0,0,0,0.10);
-  background: var(--pad_bg);
+  background:#fff;
   display:flex;
   align-items:center;
   justify-content:center;
   font-weight: 900;
-  font-size: 24px;
+  font-size: 22px;
   color: var(--ink);
+  flex: 0 0 auto;
 }
-.label{
-  font-size: clamp(18px, 1.8vw, 28px);
-  font-weight: 800;
+.desc{
+  font-size: clamp(16px, 1.55vw, 24px);
+  font-weight: 900;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.meta{
+  font-size: clamp(16px, 1.55vw, 24px);
+  font-weight: 900;
   color: var(--muted);
+  flex: 0 0 auto;
 }
+.more{margin-top: 2px; color: var(--muted); font-weight: 900; font-size: clamp(14px, 1.35vw, 20px);}
 
 /* Footer */
 .footer{
@@ -261,52 +346,137 @@ html, body {background:#ffffff;}
   align-items:center;
   justify-content:space-between;
   color: var(--muted);
-  font-weight: 800;
-  font-size: clamp(16px, 1.6vw, 22px);
+  font-weight: 900;
+  font-size: clamp(16px, 1.5vw, 22px);
 }
-.footer .k{color:#8a93a3; margin-right:10px; font-weight:900;}
+.footer .k{color:#8a93a3; margin-right:10px; font-weight: 1000;}
 </style>
 """
 
-st.markdown(CSS, unsafe_allow_html=True)
+
+def render_item(p: PadState, label: str, meta: str) -> str:
+    return (
+        '<div class="item">'
+        f'<div class="item-left"><div class="pad">{p.pad}</div><div class="desc">{label}</div></div>'
+        f'<div class="meta">{meta}</div>'
+        '</div>'
+    )
+
+
+def section(title: str, header_cls: str, dot_color: str, body_html: str) -> str:
+    return (
+        '<div class="section">'
+        f'<div class="section-h {header_cls}"><span class="dot" style="background:{dot_color}"></span>{title}</div>'
+        f'<div class="items">{body_html}</div>'
+        '</div>'
+    )
+
+
+def capped_list(items_html: List[str], cap: int = 3) -> str:
+    if not items_html:
+        return '<div class="desc" style="color:#6b7483; font-weight:800;">None</div>'
+    shown = items_html[:cap]
+    extra = len(items_html) - len(shown)
+    out = "".join(shown)
+    if extra > 0:
+        out += f'<div class="more">+{extra} more</div>'
+    return out
+
 
 # ----------------------------
-# Build HTML (avoid indentation so Streamlit won't render as code blocks)
+# App runtime
 # ----------------------------
-top_html = ""
+if "wall_state" not in st.session_state:
+    st.session_state["wall_state"] = init_state()
+
+state = st.session_state["wall_state"]
+
+try:
+    from streamlit_autorefresh import st_autorefresh
+
+    st_autorefresh(interval=1000, key="tick")
+except Exception:
+    pass
+
+tick(state)
+
+pads_list = list(state["pads"].values())
+kind, primary_pad, primary_label = pick_primary(pads_list)
+
+# Footer metrics
+at_base = sum(1 for p in pads_list if p.phase == "AT_BASE")
+arriving_soon = sum(1 for p in pads_list if p.phase == "COLLECTING")
+cancelled = 0
+
+# Top strip
+wind_ms = state.get("wind", 7)
+alert_msg = state.get("alert_msg")
+
+st.markdown(CSS, unsafe_allow_html=True)
+
 if alert_msg:
     top_html = f'<div class="topstrip alert"><div class="left">{alert_msg}</div><div class="right">Wind: {wind_ms} m/s</div></div>'
 else:
     top_html = f'<div class="topstrip"><div class="left">RPP: 2 mins</div><div class="right">Wind: {wind_ms} m/s</div></div>'
 
-def item(pad_letter: str, label: str) -> str:
-    return f'<div class="item"><div class="pad">{pad_letter}</div><div class="label">{label}</div></div>'
+# Primary block
+if kind == "critical" and primary_pad is not None:
+    primary_html = (
+        '<div class="primary">'
+        '<div class="kicker">NEXT ACTION</div>'
+        f'<div class="bigrow"><div class="arrow">→</div><div class="padbig">{primary_pad.pad}</div></div>'
+        f'<div class="actiontext">{primary_label}</div>'
+        f'<div class="smallmeta">{primary_pad.storage} {primary_pad.order_id}</div>'
+        f'<div class="subline">Fix time: {primary_pad.remaining}s</div>'
+        '</div>'
+    )
+elif kind in ("loading", "at_base") and primary_pad is not None:
+    primary_html = (
+        '<div class="primary">'
+        '<div class="kicker">NEXT ACTION</div>'
+        f'<div class="bigrow"><div class="arrow">→</div><div class="padbig">{primary_pad.pad}</div></div>'
+        '<div class="actiontext">Load order</div>'
+        f'<div class="smallmeta">{primary_pad.storage} {primary_pad.order_id}</div>'
+        f'<div class="subline">{primary_pad.phase.replace("_"," ").title()} • {primary_pad.remaining}s</div>'
+        '</div>'
+    )
+else:
+    primary_html = (
+        '<div class="primary">'
+        '<div class="kicker">NEXT ACTION</div>'
+        '<div class="bigrow"><div class="arrow">→</div><div class="padbig">—</div></div>'
+        '<div class="actiontext">All clear</div>'
+        '<div class="subline">Waiting for next order</div>'
+        '</div>'
+    )
 
-# 6 pads shown under QUEUE for the clean canvas
-pads = list("ABCDEF")
+# Right stack sections
+critical_items = []
+for p in sorted([x for x in pads_list if x.phase == "CRITICAL"], key=lambda x: x.pad):
+    critical_items.append(render_item(p, p.issue or "Issue", f"{p.storage} {p.order_id}"))
 
-critical_html = '<div class="section"><div class="section-h h-critical"><span class="dot"></span>CRITICAL</div><div class="items"><div class="label" style="font-weight:800;color:#6b7483;">None</div></div></div>'
-active_html = '<div class="section"><div class="section-h h-active"><span class="dot"></span>ACTIVE / LOADING</div><div class="items"><div class="label" style="font-weight:800;color:#6b7483;">None</div></div></div>'
+active_items = []
+for p in sorted([x for x in pads_list if x.phase == "LOADING"], key=lambda x: x.remaining):
+    active_items.append(render_item(p, f"{p.remaining}s", f"{p.storage} {p.order_id}"))
 
-queue_items = "".join(item(p, "Idle") for p in pads)
-queue_html = f'<div class="section"><div class="section-h h-queue"><span class="dot"></span>QUEUE</div><div class="items">{queue_items}</div></div>'
+queue_items = []
+# Queue = at base first (needs attention soon), then collecting
+for p in sorted([x for x in pads_list if x.phase == "AT_BASE"], key=lambda x: x.remaining):
+    queue_items.append(render_item(p, "At base", f"{p.storage} {p.order_id}"))
+for p in sorted([x for x in pads_list if x.phase == "COLLECTING"], key=lambda x: x.remaining):
+    queue_items.append(render_item(p, f"Arriving in {p.remaining}s", f"{p.storage} {p.order_id}"))
 
-primary_html = (
-    '<div class="primary">'
-      '<div class="kicker">NEXT ACTION</div>'
-      '<div class="bigrow"><div class="arrow">→</div><div class="padbig">—</div></div>'
-      '<div class="actiontext">All clear</div>'
-      '<div class="subline">Waiting for next order</div>'
-    '</div>'
-)
+critical_html = section("CRITICAL", "h-critical", "#d92d20", capped_list(critical_items, 3))
+active_html = section("ACTIVE / LOADING", "h-active", "#fdb022", capped_list(active_items, 3))
+queue_html = section("QUEUE", "h-queue", "#98a2b3", capped_list(queue_items, 3))
 
 stack_html = f'<div class="stack">{critical_html}{active_html}{queue_html}</div>'
 
 footer_html = (
     '<div class="footer">'
-      '<div><span class="k">At Base</span>--</div>'
-      '<div><span class="k">Arriving Soon</span>--</div>'
-      '<div><span class="k">Cancelled</span>--</div>'
+    f'<div><span class="k">At Base</span>{at_base}</div>'
+    f'<div><span class="k">Arriving Soon</span>{arriving_soon}</div>'
+    f'<div><span class="k">Cancelled</span>{cancelled}</div>'
     '</div>'
 )
 
