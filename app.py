@@ -235,16 +235,20 @@ def primary_html(kind: str, p: Optional[PadState], label: str) -> Tuple[str, str
 """
 
 def stack_section(title: str, title_cls: str, items: List[str], more_count: int) -> str:
-    more_html = f'<div class="more">+{more_count} more</div>' if more_count > 0 else ""
-    return f"""
+    html = f"""
 <div class="stack-section">
   <div class="stack-title {title_cls}">{title}</div>
   <div class="stack-items">
     {''.join(items)}
-    {more_html}
+"""
+    if more_count > 0:
+        html += f'<div class="more">+{more_count} more</div>'
+
+    html += """
   </div>
 </div>
 """
+    return html
 
 def stack_item(pad: str, left_text: str, right_text: str) -> str:
     return f"""
