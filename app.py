@@ -243,7 +243,7 @@ CSS = """
   margin-top: 12px;
   display:grid;
   grid-template-columns: 45% 55%;
-  grid-template-rows: 75vh 8vh;
+  grid-template-rows: 78vh 8vh;
   gap: 14px;
 }
 
