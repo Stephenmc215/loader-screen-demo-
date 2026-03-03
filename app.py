@@ -59,6 +59,46 @@ WEATHER_MESSAGES = [
     "Weather: Temps stable",
 ]
 
+
+
+# Top bar behaviour (demo)
+TOPBAR_ALERT_RATE = 0.05  # 5% of the time show an alert
+WIND_MIN_MS = 5
+WIND_MAX_MS = 10
+
+TOPBAR_ALERT_IDS = [
+    "wipe_lidar",
+    "space_weather",
+    "icing_checklist",
+    "weather_above_limits",
+    "containment_breach",
+]
+TOPBAR_ALERT_TEXT = {
+    "wipe_lidar": "WIPE LIDAR",
+    "space_weather": "SPACE WEATHER OVER LIMITS",
+    "icing_checklist": "ICING PRE-FLIGHT CHECKLIST",
+    "weather_above_limits": "WEATHER ABOVE LIMITS • PUT EVERYTHING IN THE HEAT",
+    "containment_breach": "CONTAINMENT BREACH • GROUNDING",
+}
+# Top bar alert logic (from Loader Screen PDF)
+ALERT_HOLD_SECONDS = 300   # 5 mins (Containment breach grounding holds)
+ALERT_BRIEF_SECONDS = 90   # short advisory hold for demo
+
+TOPBAR_ALERTS_ORDER = [
+    "containment_breach",
+    "wipe_lidar",
+    "space_weather",
+    "icing_checklist",
+    "weather_above_limits",
+]
+
+TOPBAR_ALERT_TEXT = {
+    "wipe_lidar": "WIPE LIDAR",
+    "space_weather": "SPACE WEATHER OVER LIMITS",
+    "icing_checklist": "ICING PRE-FLIGHT CHECKLIST",
+    "weather_above_limits": "WEATHER ABOVE LIMITS • PUT EVERYTHING IN THE HEAT",
+    "containment_breach": "CONTAINMENT BREACH • GROUNDING",
+}
 STORAGE_EMOJI = ["🔥", "📦", "🧊"]
 
 ISSUES: List[Tuple[str, str]] = [
@@ -134,6 +174,10 @@ def init_state() -> Dict:
         "weather_idx": 0,
         "weather_next": time.time() + WEATHER_ROTATE_SECONDS,
         "last_tick": time.time(),
+        "wind_ms": 7,
+        "topbar_alert_id": None,
+        "topbar_is_alert": False,
+        # environment + top bar alert state
     }
 
 
@@ -179,33 +223,26 @@ def tick_sim(state: Dict) -> None:
         state["weather_next"] = time.time() + WEATHER_ROTATE_SECONDS
 
 
-# ----------------------------
-# Deterministic priority ladder (LOCKED)
-# ----------------------------
-def pick_primary(pads: List[PadState]) -> Tuple[str, Optional[PadState], str]:
-    critical = [p for p in pads if p.phase == "AT_BASE" and p.issue and p.severity == "critical"]
-    if critical:
-        p = sorted(critical, key=lambda x: x.pad)[0]
-        return "critical", p, p.issue or "Critical"
-
-    attention = [p for p in pads if p.phase == "AT_BASE" and p.issue and p.severity == "attention"]
-    if attention:
-        p = sorted(attention, key=lambda x: x.pad)[0]
-        return "attention", p, p.issue or "Attention"
-
-    active = [p for p in pads if p.phase == "AT_BASE" and not p.issue]
-    if active:
-        p = sorted(active, key=lambda x: x.remaining)[0]
-        return "active", p, "Load Order"
-
-    arriving = [p for p in pads if p.phase == "ARRIVING" and p.remaining <= ARRIVING_SOON_THRESHOLD]
-    if arriving:
-        p = sorted(arriving, key=lambda x: x.remaining)[0]
-        return "arriving", p, "Go To Pad"
-
-    return "calm", None, "All clear"
 
 
+
+
+def update_topbar(state: Dict) -> None:
+    """
+    Demo behaviour:
+      - 5% of the time show an alert (one of the PDF alert phrases)
+      - otherwise show RPP + Wind reading (5–10 m/s)
+    """
+    rng: random.Random = state["rng"]
+    # Decide whether the bar is an alert this tick
+    is_alert = rng.random() < TOPBAR_ALERT_RATE
+    state["topbar_is_alert"] = is_alert
+    if is_alert:
+        state["topbar_alert_id"] = rng.choice(TOPBAR_ALERT_IDS)
+    else:
+        state["topbar_alert_id"] = None
+        # Update wind gently when we're in normal mode
+        state["wind_ms"] = rng.randint(WIND_MIN_MS, WIND_MAX_MS)
 def is_degraded(pads: List[PadState]) -> bool:
     return any(p.phase == "AT_BASE" and p.issue and p.severity == "critical" for p in pads)
 
@@ -315,17 +352,30 @@ def build_primary_action(kind: str, p: Optional[PadState], label: str) -> str:
 
 
 def top_strip_html(pads: List[PadState], state: Dict) -> str:
-    degraded = is_degraded(pads)
-    cls = "topstrip degraded" if degraded else "topstrip"
-    left = "SYSTEM DEGRADED" if degraded else RPP_TEXT
-    mid = WEATHER_MESSAGES[state["weather_idx"]]
-    return f"""
+    """
+    Top bar:
+      - If alert: show alert phrase (left) + rotating weather text (right)
+      - Else: show RPP (left) + wind reading (right)
+    """
+    if state.get("topbar_is_alert") and state.get("topbar_alert_id"):
+        alert_id = state["topbar_alert_id"]
+        left = TOPBAR_ALERT_TEXT.get(alert_id, "ALERT")
+        right = WEATHER_MESSAGES[state["weather_idx"]]
+        cls = "topstrip alert-red" if alert_id == "containment_breach" else "topstrip alert-amber"
+        return f"""
 <div class="{cls}">
   <div class="ts-left">{left}</div>
-  <div class="ts-mid">{mid}</div>
+  <div class="ts-mid">{right}</div>
 </div>
 """
-
+    # normal
+    wind = state.get("wind_ms", 7)
+    return f"""
+<div class="topstrip">
+  <div class="ts-left">{RPP_TEXT}</div>
+  <div class="ts-mid">Wind: {wind} m/s</div>
+</div>
+"""
 def footer_html(at_base: int, arriving_soon: int, cancelled: int) -> str:
     return f"""
 <div class="footer">
@@ -351,6 +401,7 @@ CSS = """
 
   --red:#b51d1d;
   --navy:#1f3f8a;
+  --amber:#b07a00;
 
   --crit_bg:#fbe3e3; --crit_line:#efb1b1; --crit_text:#7a1212;
   --load_bg:#fff7cf; --load_line:#f0e39c; --load_text:#6a5400;
@@ -398,7 +449,9 @@ body{background:var(--bg);}
   text-align:right;
   color:rgba(255,255,255,0.78);
 }
-.topstrip.degraded{background: var(--red);}
+.topstrip.degraded{background: var(--red);} /* legacy */
+.topstrip.alert-red{background: var(--red);} 
+.topstrip.alert-amber{background: var(--amber);}
 
 /* Main split */
 .mainrow{
@@ -585,8 +638,8 @@ except Exception:
     pass
 
 tick_sim(state)
+update_topbar(state)
 pads = list(state["pads"].values())
-
 st.markdown(CSS, unsafe_allow_html=True)
 
 kind, primary_pad, primary_label = pick_primary(pads)
