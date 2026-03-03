@@ -373,8 +373,6 @@ def section(title: str, header_cls: str, dot_color: str, body_html: str) -> str:
 
 
 def capped_list(items_html: List[str], cap: int = 3) -> str:
-    if not items_html:
-        return '<div class="desc" style="color:#6b7483; font-weight:800;">None</div>'
     shown = items_html[:cap]
     extra = len(items_html) - len(shown)
     out = "".join(shown)
@@ -466,11 +464,17 @@ for p in sorted([x for x in pads_list if x.phase == "AT_BASE"], key=lambda x: x.
 for p in sorted([x for x in pads_list if x.phase == "COLLECTING"], key=lambda x: x.remaining):
     queue_items.append(render_item(p, f"Arriving in {p.remaining}s", f"{p.storage} {p.order_id}"))
 
-critical_html = section("CRITICAL", "h-critical", "#d92d20", capped_list(critical_items, 3))
-active_html = section("ACTIVE / LOADING", "h-active", "#fdb022", capped_list(active_items, 3))
-queue_html = section("QUEUE", "h-queue", "#98a2b3", capped_list(queue_items, 3))
 
-stack_html = f'<div class="stack">{critical_html}{active_html}{queue_html}</div>'
+# Only render a section if it has items (no empty "None" blocks)
+sections_html: List[str] = []
+if critical_items:
+    sections_html.append(section("CRITICAL", "h-critical", "#d92d20", capped_list(critical_items, 3)))
+if active_items:
+    sections_html.append(section("ACTIVE / LOADING", "h-active", "#fdb022", capped_list(active_items, 3)))
+if queue_items:
+    sections_html.append(section("QUEUE", "h-queue", "#98a2b3", capped_list(queue_items, 3)))
+
+stack_html = '<div class="stack">' + ''.join(sections_html) + '</div>'
 
 footer_html = (
     '<div class="footer">'
