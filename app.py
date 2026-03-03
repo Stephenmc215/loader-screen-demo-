@@ -308,6 +308,7 @@ def build_primary_action(kind: str, p: Optional[PadState], label: str) -> str:
 
 def top_strip_html(pads: List[PadState], state: Dict) -> str:
     degraded = is_degraded(pads)
+primarywrap_cls = "primarywrap urgent" if degraded else "primarywrap"
     cls = "topstrip degraded" if degraded else "topstrip"
     left = "SYSTEM DEGRADED" if degraded else RPP_TEXT
     mid = WEATHER_MESSAGES[state["weather_idx"]]
@@ -610,12 +611,15 @@ except Exception:
 tick_sim(state)
 pads = list(state["pads"].values())
 
+
+primarywrap_cls = "primarywrap urgent" if degraded else "primarywrap"
+
 st.markdown(CSS, unsafe_allow_html=True)
 
 kind, primary_pad, primary_label = pick_primary(pads)
 
 top_html = top_strip_html(pads, state)
-primarywrap_cls = "primarywrap urgent" if degraded else "primarywrap"
+
 primary_html = build_primary_action(kind, primary_pad, primary_label)
 stack_html = build_status_stack(pads)
 
