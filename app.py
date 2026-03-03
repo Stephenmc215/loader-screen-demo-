@@ -24,7 +24,7 @@ st.set_page_config(page_title="Loader Wall Screen", layout="wide")
 # ----------------------------
 # Demo configuration
 # ----------------------------
-PADS = list("ABCDEF")
+PADS = list("ABCDEFGH")
 ORDER_MIN, ORDER_MAX, ORDER_STEP = 200, 999, 1
 STORAGE_EMOJI = ["🔥", "📦", "🧊"]
 
