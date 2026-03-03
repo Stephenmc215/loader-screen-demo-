@@ -6,18 +6,21 @@ from typing import Dict, List, Optional, Tuple
 import streamlit as st
 
 # ============================================================
-# LOADER WALL SCREEN – Wall-first layout (65" @ ~5m)
-# 16:9 • Deterministic priority • Clean hierarchy
+# LOADER WALL SCREEN – V16 (stable)
+# 16:9 wall grid: Top 10% • Main 82% (65/35) • Footer 8%
+# Pastel V10-style colours (light UI), neutral top strip.
 #
-# Phase naming (ops language):
-# - COLLECTING: collector has the order (Arriving Soon metric)
-# - ARRIVING: order is arriving to base imminently (countdown)
-# - AT_BASE: at base being loaded
+# Order pipeline language:
+# - COLLECTING = collector currently carrying orders (Arriving Soon metric)
+# - ARRIVING   = order arriving to base imminently (countdown)
+# - AT_BASE    = at base being loaded
 #
-# Layout grid:
-# - Top Status Strip: 10% height (neutral dark; red only for degraded)
-# - Main: 82% height (Left 65% Primary Action, Right 35% Status Stack)
-# - Footer: 8% height (At Base | Arriving Soon | Cancelled | Clock)
+# Priority (locked):
+# 1) CRITICAL issue (AT_BASE)
+# 2) ATTENTION issue (AT_BASE)
+# 3) ACTIVE / LOADING (AT_BASE)
+# 4) ARRIVING soon (ARRIVING <= 60s)
+# 5) Calm
 # ============================================================
 
 st.set_page_config(page_title="Loader Wall Screen", layout="wide")
@@ -39,14 +42,14 @@ COLLECTING_MAX = 180
 ARRIVING_MIN = 5
 ARRIVING_MAX = 30
 
-ARRIVING_SOON_THRESHOLD = 60  # for primary selection only
+ARRIVING_SOON_THRESHOLD = 60  # affects priority selection only
 
-# Make it feel live on a wall
+# Make it feel live
 SIM_SPEED = 2
 INITIAL_COLLECTING_MIN = 10
 INITIAL_COLLECTING_MAX = 80
 
-# Top strip info (neutral)
+# Top strip
 RPP_TEXT = "RPP: 2 mins"
 WEATHER_ROTATE_SECONDS = 6
 WEATHER_MESSAGES = [
@@ -200,7 +203,7 @@ def pick_primary(pads: List[PadState]) -> Tuple[str, Optional[PadState], str]:
         p = sorted(arriving, key=lambda x: x.remaining)[0]
         return "arriving", p, "Go To Pad"
 
-    return "calm", None, "All Clear"
+    return "calm", None, "All clear"
 
 
 def is_degraded(pads: List[PadState]) -> bool:
@@ -232,6 +235,7 @@ def status_item(pad: str, left: str, right: str) -> str:
 </div>
 """
 
+
 def section(title: str, kind: str, items_html: str) -> str:
     return f"""
 <div class="stack-section">
@@ -244,15 +248,16 @@ def section(title: str, kind: str, items_html: str) -> str:
 def build_status_stack(pads: List[PadState]) -> str:
     critical = sorted(
         [p for p in pads if p.phase == "AT_BASE" and p.issue and p.severity == "critical"],
-        key=lambda x: x.pad
+        key=lambda x: x.pad,
     )
     crit_items = [status_item(p.pad, f"{p.issue}", f"{p.storage} {p.order_next}") for p in critical]
 
-    # ACTIVE / LOADING includes attention too (still active work), with attention first
+    # ACTIVE / LOADING includes attention first (still "active work")
     active = sorted(
         [p for p in pads if p.phase == "AT_BASE" and p.pad not in {c.pad for c in critical}],
-        key=lambda x: (0 if (x.issue and x.severity == "attention") else 1, x.remaining, x.pad)
+        key=lambda x: (0 if (x.issue and x.severity == "attention") else 1, x.remaining, x.pad),
     )
+
     act_items: List[str] = []
     for p in active:
         if p.issue and p.severity == "attention":
@@ -282,8 +287,11 @@ def build_primary_action(kind: str, p: Optional[PadState], label: str) -> str:
         return """
 <div class="primary">
   <div class="p-next">NEXT ACTION</div>
-  <div class="p-pad">—</div>
-  <div class="p-action">All Clear</div>
+  <div class="p-row">
+    <div class="p-arrow">→</div>
+    <div class="p-pad">—</div>
+  </div>
+  <div class="p-action">All clear</div>
   <div class="p-sub">Waiting for next order</div>
 </div>
 """
@@ -308,7 +316,6 @@ def build_primary_action(kind: str, p: Optional[PadState], label: str) -> str:
 
 def top_strip_html(pads: List[PadState], state: Dict) -> str:
     degraded = is_degraded(pads)
-primarywrap_cls = "primarywrap urgent" if degraded else "primarywrap"
     cls = "topstrip degraded" if degraded else "topstrip"
     left = "SYSTEM DEGRADED" if degraded else RPP_TEXT
     mid = WEATHER_MESSAGES[state["weather_idx"]]
@@ -334,12 +341,11 @@ def footer_html(at_base: int, arriving_soon: int, cancelled: int) -> str:
 
 
 # ----------------------------
-# Styles (wall scale)
+# Styles (pastel + wall scale)
 # ----------------------------
 CSS = """
 <style>
 :root{
-  /* Pastel ops palette (matches v10-style screenshots) */
   --bg:#ffffff;
   --ink:#0b1320;
   --muted:#5b6472;
@@ -347,18 +353,16 @@ CSS = """
   --card:#ffffff;
   --line:#e8ebf0;
 
-  --blue:#1f3f8a;
   --red:#b51d1d;
 
   --crit_bg:#fbe3e3; --crit_line:#efb1b1; --crit_text:#7a1212;
-  --attn_bg:#e7efff; --attn_line:#b9d3ff; --attn_text:#143d8a;
   --load_bg:#fff7cf; --load_line:#f0e39c; --load_text:#6a5400;
   --queue_bg:#f4f5f7; --queue_line:#e1e3e8; --queue_text:#3b4350;
+
   --primary_bg:#fff7ed; --primary_line:#f1dcc7;
   --urgent_bg:#fff0f0;
 }
 
-/* page background */
 body{background:var(--bg);}
 
 .main .block-container{
@@ -367,14 +371,13 @@ body{background:var(--bg);}
   max-width: 1900px;
 }
 
-/* 10% / 82% / 8% */
 .grid{
   display:grid;
   grid-template-rows: 10vh 82vh 8vh;
   gap: 1.2vh;
 }
 
-/* Top status strip – neutral by default; red only when degraded */
+/* Top status strip */
 .topstrip{
   background:#111722;
   border-radius: 18px;
@@ -389,7 +392,7 @@ body{background:var(--bg);}
 .topstrip .ts-right{font-size:48px; text-align:right; letter-spacing:1px; color:rgba(255,255,255,0.95);}
 .topstrip.degraded{background: var(--red);}
 
-/* Main split 65/35 */
+/* Main split */
 .mainrow{
   display:grid;
   grid-template-columns: 65% 35%;
@@ -398,7 +401,7 @@ body{background:var(--bg);}
   height: 82vh;
 }
 
-/* Primary action area – large type; subtle panel (no heavy boxes) */
+/* Primary */
 .primarywrap{
   background: var(--primary_bg);
   border-radius: 18px;
@@ -406,6 +409,10 @@ body{background:var(--bg);}
   display:flex;
   align-items:center;
   justify-content:center;
+}
+.primarywrap.urgent{
+  background: var(--urgent_bg);
+  border: 4px solid var(--red);
 }
 
 .primary{
@@ -417,7 +424,6 @@ body{background:var(--bg);}
   justify-content:center;
   color: var(--ink);
 }
-
 .p-next{
   font-size: 56px;
   font-weight: 1000;
@@ -425,66 +431,15 @@ body{background:var(--bg);}
   color: var(--muted);
   margin-bottom: 2vh;
 }
+.p-row{display:flex; align-items:center; gap: 3vw;}
+.p-arrow{font-size: 220px; font-weight: 1000; line-height:1; color: var(--ink); opacity:0.95;}
+.p-pad{font-size: 320px; font-weight: 1000; line-height:0.9; color: var(--ink);}
+.p-action{margin-top:1.6vh; font-size:104px; font-weight:1000; line-height:1.05; color: var(--ink);}
+.p-count{margin-top:1vh; font-size:160px; font-weight:1000; line-height:1; color: var(--ink);}
+.p-sub{margin-top:1.5vh; font-size:54px; font-weight:1000; color: var(--muted);}
 
-.p-row{
-  display:flex;
-  align-items:center;
-  gap: 3vw;
-}
-
-.p-arrow{
-  font-size: 220px;
-  font-weight: 1000;
-  line-height: 1;
-  color: var(--ink);
-  opacity: 0.95;
-}
-
-.p-pad{
-  font-size: 320px;
-  font-weight: 1000;
-  line-height: 0.9;
-  color: var(--ink);
-}
-
-.p-action{
-  margin-top: 1.6vh;
-  font-size: 104px;
-  font-weight: 1000;
-  line-height: 1.05;
-  color: var(--ink);
-}
-
-.p-count{
-  margin-top: 1vh;
-  font-size: 160px;
-  font-weight: 1000;
-  line-height: 1;
-  color: var(--ink);
-}
-
-.p-sub{
-  margin-top: 1.5vh;
-  font-size: 54px;
-  font-weight: 1000;
-  color: var(--muted);
-}
-
-/* If degraded, make the primary area urgent (soft red, not full-screen banner) */
-.primarywrap.urgent{
-  background: var(--urgent_bg);
-  border: 4px solid var(--red);
-}
-
-/* Status stack on right */
-.statuswrap{
-  background: transparent;
-  border-radius: 18px;
-  display:flex;
-  flex-direction:column;
-  gap: 1.2vh;
-}
-
+/* Status stack */
+.statuswrap{display:flex; flex-direction:column; gap: 1.2vh;}
 .stack-section{
   background: var(--card);
   border: 1px solid var(--line);
@@ -493,14 +448,12 @@ body{background:var(--bg);}
   display:flex;
   flex-direction:column;
 }
-
 .stack-title{
   padding: 1.4vh 1.6vw;
   font-size: 56px;
   font-weight: 1000;
   letter-spacing: 0.8px;
 }
-
 .t-critical{background: var(--crit_bg); color: var(--crit_text); border-bottom: 1px solid var(--crit_line);}
 .t-active{background: var(--load_bg); color: var(--load_text); border-bottom: 1px solid var(--load_line);}
 .t-queue{background: var(--queue_bg); color: var(--queue_text); border-bottom: 1px solid var(--queue_line);}
@@ -512,7 +465,6 @@ body{background:var(--bg);}
   gap: 1.2vh;
 }
 
-/* Status row: PAD | LEFT | RIGHT (aligned numbers) */
 .sitem{
   display:grid;
   grid-template-columns: 92px 1fr auto;
@@ -523,21 +475,15 @@ body{background:var(--bg);}
   border: 1px solid var(--queue_line);
   background: #ffffff;
 }
-
 .spad{
-  width: 72px;
-  height: 72px;
+  width: 72px; height: 72px;
   border-radius: 16px;
   background: #fff;
   border: 1px solid rgba(0,0,0,0.10);
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  font-size: 52px;
-  font-weight: 1000;
+  display:flex; align-items:center; justify-content:center;
+  font-size: 52px; font-weight: 1000;
   color: var(--ink);
 }
-
 .sleft{
   font-size: 48px;
   font-weight: 1000;
@@ -547,7 +493,6 @@ body{background:var(--bg);}
   overflow:hidden;
   text-overflow: ellipsis;
 }
-
 .sright{
   font-size: 48px;
   font-weight: 1000;
@@ -567,7 +512,7 @@ body{background:var(--bg);}
   padding-left: 0.4vw;
 }
 
-/* Footer: minimal, low contrast */
+/* Footer */
 .footer{
   background: #ffffff;
   border: 1px solid var(--line);
@@ -580,16 +525,8 @@ body{background:var(--bg);}
   font-size: 30px;
   font-weight: 1000;
 }
-
-.footer .k{
-  color: #6b7483;
-  margin-right: 10px;
-}
-
-.footer .clock{
-  color: rgba(11,19,32,0.85);
-  letter-spacing: 1px;
-}
+.footer .k{color:#6b7483; margin-right:10px;}
+.footer .clock{color: rgba(11,19,32,0.85); letter-spacing:1px;}
 </style>
 """
 
@@ -611,15 +548,13 @@ except Exception:
 tick_sim(state)
 pads = list(state["pads"].values())
 
-
-primarywrap_cls = "primarywrap urgent" if degraded else "primarywrap"
-
 st.markdown(CSS, unsafe_allow_html=True)
 
 kind, primary_pad, primary_label = pick_primary(pads)
+degraded = is_degraded(pads)
+primarywrap_cls = "primarywrap urgent" if degraded else "primarywrap"
 
 top_html = top_strip_html(pads, state)
-
 primary_html = build_primary_action(kind, primary_pad, primary_label)
 stack_html = build_status_stack(pads)
 
@@ -640,5 +575,5 @@ st.markdown(
   {foot_html}
 </div>
 """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
