@@ -1,282 +1,315 @@
-
 import random
 import time
-
 import streamlit as st
-from textwrap import dedent
 
-st.set_page_config(page_title="Loader Wall Screen - Clean Layout", layout="wide")
+# ============================================================
+# Loader Wall Screen — Blank Layout (V4)
+# Clean canvas • 6 pads • No orders moving
+# Top bar: 5% alert, else shows RPP + Wind (5–10 m/s)
+# Typography: sleeker / less blocky for browser viewing
+# ============================================================
 
-# Auto-refresh so the top bar can occasionally show alerts
+st.set_page_config(page_title="Loader Wall Screen (Blank)", layout="wide")
+
+# ----------------------------
+# Alert config
+# ----------------------------
+ALERT_CHANCE = 0.05
+ALERT_MESSAGES = [
+    "Heavy rain — wipe lidar",
+    "Space weather over limits",
+    "Icing pre‑flight checklist",
+    "Weather above limits — put everything in the heat",
+    "Containment breach — grounding",
+]
+
+def pick_top_strip(rng: random.Random) -> tuple[str | None, int]:
+    """Return (alert_message_or_None, wind_ms)."""
+    wind_ms = rng.randint(5, 10)
+    if rng.random() < ALERT_CHANCE:
+        return rng.choice(ALERT_MESSAGES), wind_ms
+    return None, wind_ms
+
+# Keep alert stable for a short window so it doesn't flicker every refresh
+ALERT_HOLD_SECONDS = 8
+
+def get_state() -> dict:
+    if "blank_state" not in st.session_state:
+        st.session_state["blank_state"] = {
+            "rng": random.Random(int(time.time())),
+            "alert_until": 0.0,
+            "alert_msg": None,
+            "wind_ms": 7,
+        }
+    return st.session_state["blank_state"]
+
+def update_top_strip(state: dict) -> None:
+    now = time.time()
+    rng: random.Random = state["rng"]
+
+    # If current alert expired, re-roll
+    if now >= state.get("alert_until", 0):
+        alert_msg, wind_ms = pick_top_strip(rng)
+        state["alert_msg"] = alert_msg
+        state["wind_ms"] = wind_ms
+        state["alert_until"] = now + ALERT_HOLD_SECONDS
+
+state = get_state()
+
+# Autorefresh
 try:
     from streamlit_autorefresh import st_autorefresh
-    st_autorefresh(interval=2000, key="blank_layout_tick")
+    st_autorefresh(interval=1000, key="blank_tick")
 except Exception:
     pass
 
-# Static pads (no simulation)
-PADS = ["A", "B", "C", "D", "E", "F"]
+update_top_strip(state)
+alert_msg = state["alert_msg"]
+wind_ms = state["wind_ms"]
 
+# ----------------------------
+# UI (CSS)
+# ----------------------------
 CSS = """
 <style>
-*{box-sizing:border-box;}
-.topstrip.alert{background: var(--alert);}
-html, body, [data-testid="stAppViewContainer"]{background:#ffffff;}
 :root{
   --navy:#1f3f8a;
-  --alert:#b51d1d;
-  --bg:#ffffff;
-  --panel:#fbfcfe;
-  --line:#e7ebf2;
   --ink:#0b1320;
-  --muted:#667083;
-  --soft:#f1f4f9;
+  --muted:#6b7483;
+  --card:#ffffff;
+  --line:#e6e9ef;
+
+  --critical_bg:#fbe3e3;
+  --critical_ink:#7a1212;
+
+  --active_bg:#fff7cf;
+  --active_ink:#6a5400;
+
+  --queue_bg:#f4f5f7;
+  --queue_ink:#3b4350;
+
+  --pad_bg:#ffffff;
+  --shadow: 0 1px 0 rgba(16,24,40,0.06);
 }
 
-.main .block-container{
-  padding-top:0.6rem;
-  padding-bottom:0.6rem;
-  max-width: 1600px;
-}
+/* Streamlit container */
+.main .block-container{max-width: 1500px; padding-top: 0.9rem; padding-bottom: 0.9rem;}
+html, body {background:#ffffff;}
 
-/* 16:9-ish wall layout */
-.grid{
-  height: calc(100vh - 1.2rem);
-  display:grid;
-  grid-template-rows: 10% 82% 8%;
-  gap: 12px;
-}
-
-/* Top status strip */
+/* Top strip */
 .topstrip{
+  height: 10vh;
+  min-height: 64px;
+  max-height: 92px;
   background: var(--navy);
+  color: #fff;
   border-radius: 18px;
-  padding: 18px 26px;
+  padding: 14px 18px;
   display:flex;
   align-items:center;
   justify-content:space-between;
-  font-weight:800;
-  color:white;
-  line-height:1;
-  font-size: clamp(18px, 1.7vw, 28px);
+  font-weight: 800;
+  box-shadow: var(--shadow);
 }
-.topstrip.alert{background: var(--alert);}
+.topstrip .left, .topstrip .right{
+  font-size: clamp(18px, 2.0vw, 34px);
+  letter-spacing: 0.2px;
+}
+.topstrip.alert{
+  background: #b51d1d;
+}
 
-/* Main row */
-.mainrow{
+/* Grid */
+.grid{
+  margin-top: 14px;
   display:grid;
   grid-template-columns: 65% 35%;
-  gap: 12px;
-  min-height: 0;
+  grid-template-rows: 1fr auto;
+  gap: 14px;
+  height: 82vh;
+  min-height: 520px;
 }
 
-/* Primary action (left) */
+/* Primary action panel */
 .primary{
-  background: var(--panel);
-  border-radius: 18px;
+  grid-column: 1;
+  grid-row: 1;
+  background: #fff;
   border: 2px solid var(--line);
-  padding: 38px 42px;
+  border-radius: 18px;
+  padding: 26px 28px;
   display:flex;
   flex-direction:column;
   justify-content:center;
-  min-height: 0;
 }
-
 .kicker{
-  font-weight:800;
-  color:#a2a9b7;
-  letter-spacing: 0.04em;
-  font-size: clamp(20px, 2.2vw, 40px);
-  margin-bottom: 26px;
+  color:#9aa3b2;
+  font-weight: 900;
+  letter-spacing: 0.10em;
+  font-size: clamp(18px, 1.8vw, 34px);
 }
-
 .bigrow{
+  margin-top: 22px;
   display:flex;
   align-items:center;
-  gap: 26px;
-  margin: 8px 0 22px 0;
+  gap: 24px;
 }
-
 .arrow{
-  font-weight:800;
+  font-size: clamp(70px, 8vw, 120px);
+  font-weight: 900;
   color: var(--ink);
-  font-size: clamp(58px, 6vw, 105px);
-  line-height:1;
 }
-
 .padbig{
-  font-weight:800;
+  font-size: clamp(150px, 16vw, 260px);
+  font-weight: 900;
+  line-height: 0.9;
   color: var(--ink);
-  font-size: clamp(120px, 12vw, 230px);
-  line-height:0.9;
 }
-
 .actiontext{
-  font-weight:800;
+  margin-top: 20px;
+  font-size: clamp(40px, 4.2vw, 70px);
+  font-weight: 900;
   color: var(--ink);
-  font-size: clamp(38px, 4.1vw, 78px);
   line-height: 1.05;
-  margin-top: 8px;
 }
-
 .subline{
-  margin-top: 18px;
-  font-weight:800;
+  margin-top: 10px;
+  font-size: clamp(18px, 2.0vw, 30px);
+  font-weight: 700;
   color: var(--muted);
-  font-size: clamp(16px, 1.8vw, 30px);
 }
 
-/* Status stack (right) */
+/* Status stack */
 .stack{
-  background: var(--panel);
-  border-radius: 18px;
-  border: 2px solid var(--line);
-  overflow:hidden;
+  grid-column: 2;
+  grid-row: 1;
   display:flex;
   flex-direction:column;
-  min-height:0;
+  gap: 12px;
 }
-
+.section{
+  border: 2px solid var(--line);
+  border-radius: 18px;
+  overflow:hidden;
+  background: var(--card);
+}
 .section-h{
-  padding: 16px 18px;
-  font-weight:800;
-  letter-spacing: 0.02em;
-  font-size: clamp(16px, 1.55vw, 26px);
+  padding: 12px 16px;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  font-size: clamp(18px, 1.6vw, 28px);
   display:flex;
   align-items:center;
-  gap: 12px;
-  border-bottom: 1px solid var(--line);
-}
-
-.h-critical{background:#fdecec; color:#7a1212;}
-.h-active{background:#fff8d6; color:#6a5400;}
-.h-queue{background:#f1f2f4; color:#3d4552;}
-
-.dot{
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  background: rgba(0,0,0,0.18);
-}
-
-.items{
-  padding: 14px 16px;
-  display:flex;
-  flex-direction:column;
   gap: 10px;
 }
-
-.item{
-  border: 1px solid var(--line);
-  background:white;
-  border-radius: 14px;
-  padding: 12px 14px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
+.dot{
+  width: 18px; height: 18px; border-radius: 50%;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.12);
 }
+.h-critical{background: var(--critical_bg); color: var(--critical_ink);}
+.h-critical .dot{background:#d72626;}
+.h-active{background: var(--active_bg); color: var(--active_ink);}
+.h-active .dot{background:#f4b400;}
+.h-queue{background: var(--queue_bg); color: var(--queue_ink);}
+.h-queue .dot{background:#c9ccd3;}
 
-.item-left{
+.items{
+  padding: 14px;
   display:flex;
-  align-items:center;
+  flex-direction:column;
   gap: 12px;
 }
-
-.badge{
-  width: 46px;
-  height: 46px;
-  border-radius: 12px;
+.item{
   border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px 14px;
+  display:flex;
+  align-items:center;
+  gap: 14px;
+  background:#fff;
+}
+.pad{
+  width: 52px; height: 52px;
+  border-radius: 14px;
+  border: 1px solid rgba(0,0,0,0.10);
+  background: var(--pad_bg);
   display:flex;
   align-items:center;
   justify-content:center;
-  font-weight:800;
+  font-weight: 900;
+  font-size: 24px;
   color: var(--ink);
-  font-size: 20px;
 }
-
 .label{
-  font-weight:800;
+  font-size: clamp(18px, 1.8vw, 28px);
+  font-weight: 800;
   color: var(--muted);
-  font-size: clamp(18px, 1.7vw, 26px);
 }
 
 /* Footer */
 .footer{
-  background: var(--panel);
-  border-radius: 18px;
+  grid-column: 1 / span 2;
+  grid-row: 2;
+  height: 8vh;
+  min-height: 52px;
+  max-height: 78px;
   border: 2px solid var(--line);
-  padding: 14px 26px;
+  border-radius: 18px;
+  padding: 10px 16px;
+  background:#fff;
   display:flex;
   align-items:center;
   justify-content:space-between;
-  font-weight:800;
   color: var(--muted);
-  font-size: clamp(16px, 1.6vw, 24px);
+  font-weight: 800;
+  font-size: clamp(16px, 1.6vw, 22px);
 }
-
-.footer span{color:#8a93a3; margin-right:10px;}
+.footer .k{color:#8a93a3; margin-right:10px; font-weight:900;}
 </style>
 """
 
 st.markdown(CSS, unsafe_allow_html=True)
 
-# Build HTML with NO leading indentation (avoid Markdown code blocks)
-top_html = (
-    f'<div class="topstrip alert"><div>{alert_msg}</div><div>Wind: {wind_ms} m/s</div></div>'
-    if alert_msg else
-    f'<div class="topstrip"><div>RPP: 2 mins</div><div>Wind: {wind_ms} m/s</div></div>'
-)
+# ----------------------------
+# Build HTML (avoid indentation so Streamlit won't render as code blocks)
+# ----------------------------
+top_html = ""
+if alert_msg:
+    top_html = f'<div class="topstrip alert"><div class="left">{alert_msg}</div><div class="right">Wind: {wind_ms} m/s</div></div>'
+else:
+    top_html = f'<div class="topstrip"><div class="left">RPP: 2 mins</div><div class="right">Wind: {wind_ms} m/s</div></div>'
+
+def item(pad_letter: str, label: str) -> str:
+    return f'<div class="item"><div class="pad">{pad_letter}</div><div class="label">{label}</div></div>'
+
+# 6 pads shown under QUEUE for the clean canvas
+pads = list("ABCDEF")
+
+critical_html = '<div class="section"><div class="section-h h-critical"><span class="dot"></span>CRITICAL</div><div class="items"><div class="label" style="font-weight:800;color:#6b7483;">None</div></div></div>'
+active_html = '<div class="section"><div class="section-h h-active"><span class="dot"></span>ACTIVE / LOADING</div><div class="items"><div class="label" style="font-weight:800;color:#6b7483;">None</div></div></div>'
+
+queue_items = "".join(item(p, "Idle") for p in pads)
+queue_html = f'<div class="section"><div class="section-h h-queue"><span class="dot"></span>QUEUE</div><div class="items">{queue_items}</div></div>'
 
 primary_html = (
     '<div class="primary">'
-    '<div class="kicker">NEXT ACTION</div>'
-    '<div class="bigrow"><div class="arrow">→</div><div class="padbig">—</div></div>'
-    '<div class="actiontext">All clear</div>'
-    '<div class="subline">Waiting for next order</div>'
+      '<div class="kicker">NEXT ACTION</div>'
+      '<div class="bigrow"><div class="arrow">→</div><div class="padbig">—</div></div>'
+      '<div class="actiontext">All clear</div>'
+      '<div class="subline">Waiting for next order</div>'
     '</div>'
 )
 
-def item(pad: str, label: str) -> str:
-    return (
-        '<div class="item">'
-        f'<div class="item-left"><div class="badge">{pad}</div><div class="label">{label}</div></div>'
-        '</div>'
-    )
-
-# Static sections (no orders). Keep it visually like the final wall.
-critical_items = '<div class="label">None</div>'
-active_items = '<div class="label">None</div>'
-queue_items = ''.join(item(p, "Idle") for p in PADS)
-
-stack_html = (
-    '<div class="stack">'
-    '<div class="section-h h-critical"><div class="dot"></div>CRITICAL</div>'
-    f'<div class="items">{critical_items}</div>'
-    '<div class="section-h h-active"><div class="dot"></div>ACTIVE / LOADING</div>'
-    f'<div class="items">{active_items}</div>'
-    '<div class="section-h h-queue"><div class="dot"></div>QUEUE</div>'
-    f'<div class="items">{queue_items}</div>'
-    '</div>'
-)
+stack_html = f'<div class="stack">{critical_html}{active_html}{queue_html}</div>'
 
 footer_html = (
     '<div class="footer">'
-    '<div><span>At Base</span>--</div>'
-    '<div><span>Arriving Soon</span>--</div>'
-    '<div><span>Cancelled</span>--</div>'
+      '<div><span class="k">At Base</span>--</div>'
+      '<div><span class="k">Arriving Soon</span>--</div>'
+      '<div><span class="k">Cancelled</span>--</div>'
     '</div>'
 )
 
-page = (
-    '<div class="grid">'
-    f'{top_html}'
-    '<div class="mainrow">'
-    f'{primary_html}'
-    f'{stack_html}'
-    '</div>'
-    f'{footer_html}'
-    '</div>'
-)
+grid_html = f'<div class="grid">{primary_html}{stack_html}{footer_html}</div>'
 
-st.markdown(page, unsafe_allow_html=True)
+st.markdown(top_html + grid_html, unsafe_allow_html=True)
