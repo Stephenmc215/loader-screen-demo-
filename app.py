@@ -432,7 +432,7 @@ else:
 # Primary block
 if kind == "critical" and primary_pad is not None:
     primary_html = (
-        '<div class="primary">'
+        '<div class="primary critical">'
         '<div class="kicker">NEXT ACTION</div>'
         f'<div class="bigrow"><div class="padbig">{primary_pad.pad}</div></div>'
         f'<div class="actiontext">{primary_label}</div>'
@@ -442,7 +442,7 @@ if kind == "critical" and primary_pad is not None:
     )
 elif kind == "attention" and primary_pad is not None:
     primary_html = (
-        '<div class="primary">'
+        '<div class="primary attention">'
         '<div class="kicker">NEXT ACTION</div>'
         f'<div class="bigrow"><div class="padbig">{primary_pad.pad}</div></div>'
         f'<div class="actiontext">{primary_label}</div>'
