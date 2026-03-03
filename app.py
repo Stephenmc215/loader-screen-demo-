@@ -15,7 +15,8 @@ import streamlit as st
 # - Arriving Soon = COLLECTING (collector has order)
 # - At Base = AT_BASE (order at base waiting to be loaded)
 # - Cancelled = 0 (demo)
-# - Right stack: CRITICAL / ACTIVE-LOADING / QUEUE
+# - Right stack (ONLY when non-empty): CRITICAL / REQUIRES ATTENTION / LOAD
+# - Lists are capped to 3 items (no "+N more" line)
 # ============================================================
 
 st.set_page_config(page_title="Loader Wall Screen", layout="wide")
@@ -44,13 +45,31 @@ ALERT_MESSAGES = [
     "Containment breach — grounding",
 ]
 
+# Issue rates
+CRITICAL_PROB = 0.08
+ATTN_PROB = 0.12
+
+CRITICAL_ISSUES = [
+    "Change drone",
+    "Pad blocked",
+    "Comms lost",
+]
+
+ATTN_ISSUES = [
+    "Repress pad",
+    "Unit expired",
+    "Change cassette",
+    "Reboot drone",
+]
+
+
 # ----------------------------
 # Model
 # ----------------------------
 @dataclass
 class PadState:
     pad: str
-    phase: str  # COLLECTING | AT_BASE | LOADING | CRITICAL
+    phase: str  # COLLECTING | AT_BASE | LOADING | CRITICAL | ATTENTION
     remaining: int
     order_id: int
     storage: str
@@ -113,7 +132,6 @@ def tick(state: Dict) -> None:
             state["alert_msg"] = rng.choice(ALERT_MESSAGES)
             state["alert_until"] = now + 10  # show alert for ~10s
         else:
-            # Only clear if not currently showing one
             if now >= state.get("alert_until", 0):
                 state["alert_msg"] = None
         state["alert_next_check"] = now + 6
@@ -126,33 +144,29 @@ def tick(state: Dict) -> None:
     for _ in range(dt * SIM_SPEED):
         for ps in pads.values():
             ps.remaining = max(0, ps.remaining - 1)
-
             if ps.remaining != 0:
                 continue
 
-            # Transitions
             if ps.phase == "COLLECTING":
                 ps.phase = "AT_BASE"
                 ps.remaining = _rand_dur(rng, ATBASE_MIN, ATBASE_MAX)
 
             elif ps.phase == "AT_BASE":
-                # Start loading; occasional issue routes to CRITICAL
-                if rng.random() < 0.12:
+                r = rng.random()
+                if r < CRITICAL_PROB:
                     ps.phase = "CRITICAL"
-                    ps.issue = rng.choice([
-                        "Comms lost",
-                        "Repress pad",
-                        "Unit expired",
-                        "Change cassette",
-                        "Reboot drone",
-                    ])
+                    ps.issue = rng.choice(CRITICAL_ISSUES)
+                    ps.remaining = _rand_dur(rng, FIX_MIN, FIX_MAX)
+                elif r < (CRITICAL_PROB + ATTN_PROB):
+                    ps.phase = "ATTENTION"
+                    ps.issue = rng.choice(ATTN_ISSUES)
                     ps.remaining = _rand_dur(rng, FIX_MIN, FIX_MAX)
                 else:
                     ps.phase = "LOADING"
                     ps.issue = None
                     ps.remaining = _rand_dur(rng, LOAD_MIN, LOAD_MAX)
 
-            elif ps.phase == "CRITICAL":
+            elif ps.phase in ("CRITICAL", "ATTENTION"):
                 # After fix, go back to loading with a short load time
                 ps.phase = "LOADING"
                 ps.issue = None
@@ -175,15 +189,15 @@ def pick_primary(pads: List[PadState]) -> Tuple[str, Optional[PadState], str]:
         p = sorted(critical, key=lambda x: x.pad)[0]
         return "critical", p, p.issue or "Action required"
 
-    loading = [p for p in pads if p.phase == "LOADING"]
-    if loading:
-        p = sorted(loading, key=lambda x: x.remaining)[0]
-        return "loading", p, "Load order"
+    attn = [p for p in pads if p.phase == "ATTENTION"]
+    if attn:
+        p = sorted(attn, key=lambda x: x.pad)[0]
+        return "attention", p, p.issue or "Requires attention"
 
-    at_base = [p for p in pads if p.phase == "AT_BASE"]
-    if at_base:
-        p = sorted(at_base, key=lambda x: x.remaining)[0]
-        return "at_base", p, "Load order"
+    load_now = [p for p in pads if p.phase in ("AT_BASE", "LOADING")]
+    if load_now:
+        p = sorted(load_now, key=lambda x: x.remaining)[0]
+        return "load", p, "Load order"
 
     return "calm", None, "All clear"
 
@@ -202,8 +216,8 @@ CSS = """
   --shadow: 0 10px 30px rgba(16,24,40,0.06);
 
   --crit_bg:#fde8e8; --crit_ink:#7a1212;
-  --act_bg:#fff6cc;  --act_ink:#6a5400;
-  --q_bg:#f2f4f7;    --q_ink:#3b4350;
+  --attn_bg:#e7efff; --attn_ink:#143d8a;
+  --load_bg:#fff6cc; --load_ink:#6a5400;
 }
 
 /* Streamlit page */
@@ -225,7 +239,6 @@ CSS = """
 }
 .topstrip .left{font-size: clamp(22px, 2.1vw, 34px);}
 .topstrip .right{font-size: clamp(20px, 1.9vw, 30px); opacity: 0.92;}
-
 .topstrip.alert{background:#b51d1d;}
 
 /* Grid */
@@ -288,8 +301,8 @@ CSS = """
 }
 .dot{width: 18px; height: 18px; border-radius: 999px; background: rgba(0,0,0,0.18);}
 .h-critical{background: var(--crit_bg); color: var(--crit_ink);} 
-.h-active{background: var(--act_bg); color: var(--act_ink);} 
-.h-queue{background: var(--q_bg); color: var(--q_ink);} 
+.h-attn{background: var(--attn_bg); color: var(--attn_ink);} 
+.h-load{background: var(--load_bg); color: var(--load_ink);} 
 
 .items{padding: 12px; display:flex; flex-direction:column; gap: 10px;}
 .item{
@@ -329,7 +342,6 @@ CSS = """
   color: var(--muted);
   flex: 0 0 auto;
 }
-.more{margin-top: 2px; color: var(--muted); font-weight: 900; font-size: clamp(14px, 1.35vw, 20px);}
 
 /* Footer */
 .footer{
@@ -373,12 +385,7 @@ def section(title: str, header_cls: str, dot_color: str, body_html: str) -> str:
 
 
 def capped_list(items_html: List[str], cap: int = 3) -> str:
-    shown = items_html[:cap]
-    extra = len(items_html) - len(shown)
-    out = "".join(shown)
-    if extra > 0:
-        out += f'<div class="more">+{extra} more</div>'
-    return out
+    return "".join(items_html[:cap])
 
 
 # ----------------------------
@@ -428,7 +435,17 @@ if kind == "critical" and primary_pad is not None:
         f'<div class="subline">Fix time: {primary_pad.remaining}s</div>'
         '</div>'
     )
-elif kind in ("loading", "at_base") and primary_pad is not None:
+elif kind == "attention" and primary_pad is not None:
+    primary_html = (
+        '<div class="primary">'
+        '<div class="kicker">NEXT ACTION</div>'
+        f'<div class="bigrow"><div class="arrow">→</div><div class="padbig">{primary_pad.pad}</div></div>'
+        f'<div class="actiontext">{primary_label}</div>'
+        f'<div class="smallmeta">{primary_pad.storage} {primary_pad.order_id}</div>'
+        f'<div class="subline">Resolve: {primary_pad.remaining}s</div>'
+        '</div>'
+    )
+elif kind == "load" and primary_pad is not None:
     primary_html = (
         '<div class="primary">'
         '<div class="kicker">NEXT ACTION</div>'
@@ -448,33 +465,31 @@ else:
         '</div>'
     )
 
-# Right stack sections
-critical_items = []
+# Right stack sections (ONLY when items exist)
+critical_items: List[str] = []
 for p in sorted([x for x in pads_list if x.phase == "CRITICAL"], key=lambda x: x.pad):
     critical_items.append(render_item(p, p.issue or "Issue", f"{p.storage} {p.order_id}"))
 
-active_items = []
-for p in sorted([x for x in pads_list if x.phase == "LOADING"], key=lambda x: x.remaining):
-    active_items.append(render_item(p, f"{p.remaining}s", f"{p.storage} {p.order_id}"))
+attn_items: List[str] = []
+for p in sorted([x for x in pads_list if x.phase == "ATTENTION"], key=lambda x: x.pad):
+    attn_items.append(render_item(p, p.issue or "Requires attention", f"{p.storage} {p.order_id}"))
 
-queue_items = []
-# Queue = at base first (needs attention soon), then collecting
+load_items: List[str] = []
+# Load = AT_BASE first (ready), then LOADING (in-progress)
 for p in sorted([x for x in pads_list if x.phase == "AT_BASE"], key=lambda x: x.remaining):
-    queue_items.append(render_item(p, "At base", f"{p.storage} {p.order_id}"))
-for p in sorted([x for x in pads_list if x.phase == "COLLECTING"], key=lambda x: x.remaining):
-    queue_items.append(render_item(p, f"Arriving in {p.remaining}s", f"{p.storage} {p.order_id}"))
+    load_items.append(render_item(p, "At base", f"{p.storage} {p.order_id}"))
+for p in sorted([x for x in pads_list if x.phase == "LOADING"], key=lambda x: x.remaining):
+    load_items.append(render_item(p, f"{p.remaining}s", f"{p.storage} {p.order_id}"))
 
-
-# Only render a section if it has items (no empty "None" blocks)
 sections_html: List[str] = []
 if critical_items:
     sections_html.append(section("CRITICAL", "h-critical", "#d92d20", capped_list(critical_items, 3)))
-if active_items:
-    sections_html.append(section("ACTIVE / LOADING", "h-active", "#fdb022", capped_list(active_items, 3)))
-if queue_items:
-    sections_html.append(section("QUEUE", "h-queue", "#98a2b3", capped_list(queue_items, 3)))
+if attn_items:
+    sections_html.append(section("REQUIRES ATTENTION", "h-attn", "#2e6bd9", capped_list(attn_items, 3)))
+if load_items:
+    sections_html.append(section("LOAD", "h-load", "#fdb022", capped_list(load_items, 3)))
 
-stack_html = '<div class="stack">' + ''.join(sections_html) + '</div>'
+stack_html = '<div class="stack">' + "".join(sections_html) + "</div>"
 
 footer_html = (
     '<div class="footer">'
