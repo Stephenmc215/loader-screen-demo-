@@ -242,7 +242,7 @@ CSS = """
 .grid{
   margin-top: 12px;
   display:grid;
-  grid-template-columns: 65% 35%;
+  grid-template-columns: 40% 60%;
   grid-template-rows: 82vh 8vh;
   gap: 14px;
 }
