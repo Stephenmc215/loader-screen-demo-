@@ -259,6 +259,15 @@ CSS = """
   justify-content:center;
   overflow:hidden;
 }
+/* Primary state modifiers */
+.primary.critical{
+  background: var(--crit_bg);
+  border-color: rgba(217,45,32,0.55);
+}
+.primary.attention{
+  background: var(--attn_bg);
+  border-color: rgba(46,107,217,0.45);
+}
 .kicker{
   font-size: clamp(18px, 1.9vw, 28px);
   font-weight: 900;
