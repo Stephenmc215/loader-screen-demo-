@@ -34,7 +34,7 @@ ATBASE_MIN, ATBASE_MAX = 12, 35
 LOAD_MIN, LOAD_MAX = 20, 55
 FIX_MIN, FIX_MAX = 25, 55
 
-SIM_SPEED = 1  # how many simulation seconds elapse per real second tick
+SIM_SPEED = 2  # how many simulation seconds elapse per real second tick
 
 ALERT_CHANCE = 0.05
 ALERT_MESSAGES = [
