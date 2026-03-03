@@ -376,7 +376,7 @@ body{background:var(--bg);}
 
 /* Top status strip (no clock) */
 .topstrip{
-  background:#111722;
+  background:#1f3f8a;
   border-radius: 18px;
   padding: 0 24px;
   display:grid;
