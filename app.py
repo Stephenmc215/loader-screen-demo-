@@ -319,15 +319,12 @@ def top_strip_html(pads: List[PadState], state: Dict) -> str:
     cls = "topstrip degraded" if degraded else "topstrip"
     left = "SYSTEM DEGRADED" if degraded else RPP_TEXT
     mid = WEATHER_MESSAGES[state["weather_idx"]]
-    clock = now_clock()
     return f"""
 <div class="{cls}">
   <div class="ts-left">{left}</div>
   <div class="ts-mid">{mid}</div>
-  <div class="ts-right">{clock}</div>
 </div>
 """
-
 
 def footer_html(at_base: int, arriving_soon: int, cancelled: int) -> str:
     return f"""
@@ -335,10 +332,8 @@ def footer_html(at_base: int, arriving_soon: int, cancelled: int) -> str:
   <div><span class="k">At Base</span>{at_base}</div>
   <div><span class="k">Arriving Soon</span>{arriving_soon}</div>
   <div><span class="k">Cancelled</span>{cancelled}</div>
-  <div class="clock">{now_clock()}</div>
 </div>
 """
-
 
 # ----------------------------
 # Styles (pastel + wall scale)
@@ -366,39 +361,48 @@ CSS = """
 body{background:var(--bg);}
 
 .main .block-container{
-  padding-top:0.6rem;
-  padding-bottom:0.6rem;
-  max-width: 1900px;
+  padding-top:0.5rem;
+  padding-bottom:0.5rem;
+  max-width: 1800px;
 }
 
+/* Make the whole layout fit the viewport (prevents footer overlay) */
 .grid{
+  height: calc(100vh - 1rem);
   display:grid;
-  grid-template-rows: 10vh 82vh 8vh;
-  gap: 1.2vh;
+  grid-template-rows: 10fr 82fr 8fr;
+  gap: 10px;
 }
 
-/* Top status strip */
+/* Top status strip (no clock) */
 .topstrip{
   background:#111722;
   border-radius: 18px;
-  padding: 0 28px;
+  padding: 0 24px;
   display:grid;
-  grid-template-columns: 1fr 1.4fr 1fr;
+  grid-template-columns: 1fr 1.6fr;
   align-items:center;
   font-weight: 1000;
 }
-.topstrip .ts-left{font-size:48px; text-align:left; color:rgba(255,255,255,0.95);}
-.topstrip .ts-mid{font-size:42px; text-align:center; color:rgba(255,255,255,0.70);}
-.topstrip .ts-right{font-size:48px; text-align:right; letter-spacing:1px; color:rgba(255,255,255,0.95);}
+.topstrip .ts-left{
+  font-size: clamp(20px, 2.6vw, 44px);
+  text-align:left;
+  color:rgba(255,255,255,0.95);
+}
+.topstrip .ts-mid{
+  font-size: clamp(18px, 2.2vw, 40px);
+  text-align:right;
+  color:rgba(255,255,255,0.75);
+}
 .topstrip.degraded{background: var(--red);}
 
 /* Main split */
 .mainrow{
   display:grid;
   grid-template-columns: 65% 35%;
-  gap: 1.2vh;
+  gap: 10px;
   align-items:stretch;
-  height: 82vh;
+  min-height: 0; /* allow children to shrink */
 }
 
 /* Primary */
@@ -409,6 +413,7 @@ body{background:var(--bg);}
   display:flex;
   align-items:center;
   justify-content:center;
+  min-height: 0;
 }
 .primarywrap.urgent{
   background: var(--urgent_bg);
@@ -418,28 +423,53 @@ body{background:var(--bg);}
 .primary{
   width: 100%;
   height: 100%;
-  padding: 3vh 3vw;
+  padding: clamp(14px, 2.2vh, 28px) clamp(14px, 2.2vw, 34px);
   display:flex;
   flex-direction:column;
   justify-content:center;
   color: var(--ink);
+  min-height: 0;
 }
 .p-next{
-  font-size: 56px;
+  font-size: clamp(22px, 3vw, 48px);
   font-weight: 1000;
   letter-spacing: 1px;
   color: var(--muted);
-  margin-bottom: 2vh;
+  margin-bottom: clamp(10px, 1.6vh, 18px);
 }
-.p-row{display:flex; align-items:center; gap: 3vw;}
-.p-arrow{font-size: 220px; font-weight: 1000; line-height:1; color: var(--ink); opacity:0.95;}
-.p-pad{font-size: 320px; font-weight: 1000; line-height:0.9; color: var(--ink);}
-.p-action{margin-top:1.6vh; font-size:104px; font-weight:1000; line-height:1.05; color: var(--ink);}
-.p-count{margin-top:1vh; font-size:160px; font-weight:1000; line-height:1; color: var(--ink);}
-.p-sub{margin-top:1.5vh; font-size:54px; font-weight:1000; color: var(--muted);}
+.p-row{display:flex; align-items:center; gap: clamp(18px, 2.4vw, 44px);}
+.p-arrow{
+  font-size: clamp(90px, 10vw, 190px);
+  font-weight: 1000; line-height:1; color: var(--ink); opacity:0.95;
+}
+.p-pad{
+  font-size: clamp(140px, 18vw, 320px);
+  font-weight: 1000; line-height:0.9; color: var(--ink);
+}
+.p-action{
+  margin-top: clamp(8px, 1.4vh, 16px);
+  font-size: clamp(38px, 6vw, 96px);
+  font-weight: 1000; line-height: 1.05; color: var(--ink);
+}
+.p-count{
+  margin-top: clamp(6px, 1.1vh, 12px);
+  font-size: clamp(56px, 9vw, 140px);
+  font-weight: 1000; line-height: 1; color: var(--ink);
+}
+.p-sub{
+  margin-top: clamp(10px, 1.5vh, 16px);
+  font-size: clamp(20px, 3.6vw, 48px);
+  font-weight: 1000;
+  color: var(--muted);
+}
 
 /* Status stack */
-.statuswrap{display:flex; flex-direction:column; gap: 1.2vh;}
+.statuswrap{
+  display:flex;
+  flex-direction:column;
+  gap: 10px;
+  min-height: 0;
+}
 .stack-section{
   background: var(--card);
   border: 1px solid var(--line);
@@ -447,10 +477,11 @@ body{background:var(--bg);}
   overflow:hidden;
   display:flex;
   flex-direction:column;
+  min-height: 0;
 }
 .stack-title{
-  padding: 1.4vh 1.6vw;
-  font-size: 56px;
+  padding: 12px 16px;
+  font-size: clamp(20px, 3.2vw, 48px);
   font-weight: 1000;
   letter-spacing: 0.8px;
 }
@@ -459,33 +490,36 @@ body{background:var(--bg);}
 .t-queue{background: var(--queue_bg); color: var(--queue_text); border-bottom: 1px solid var(--queue_line);}
 
 .stack-items{
-  padding: 1.2vh 1.2vw 1.6vh 1.2vw;
+  padding: 12px 14px 14px 14px;
   display:flex;
   flex-direction:column;
-  gap: 1.2vh;
+  gap: 10px;
+  min-height: 0;
 }
 
 .sitem{
   display:grid;
-  grid-template-columns: 92px 1fr auto;
+  grid-template-columns: clamp(60px, 5vw, 88px) 1fr auto;
   align-items:center;
-  column-gap: 18px;
-  padding: 0.7vh 0.6vw;
+  column-gap: 14px;
+  padding: 10px 12px;
   border-radius: 14px;
   border: 1px solid var(--queue_line);
   background: #ffffff;
 }
 .spad{
-  width: 72px; height: 72px;
+  width: clamp(46px, 4.4vw, 70px);
+  height: clamp(46px, 4.4vw, 70px);
   border-radius: 16px;
   background: #fff;
   border: 1px solid rgba(0,0,0,0.10);
   display:flex; align-items:center; justify-content:center;
-  font-size: 52px; font-weight: 1000;
+  font-size: clamp(22px, 3vw, 44px);
+  font-weight: 1000;
   color: var(--ink);
 }
 .sleft{
-  font-size: 48px;
+  font-size: clamp(18px, 2.8vw, 40px);
   font-weight: 1000;
   color: var(--ink);
   line-height:1;
@@ -494,7 +528,7 @@ body{background:var(--bg);}
   text-overflow: ellipsis;
 }
 .sright{
-  font-size: 48px;
+  font-size: clamp(18px, 2.8vw, 40px);
   font-weight: 1000;
   color: var(--ink);
   line-height:1;
@@ -505,28 +539,27 @@ body{background:var(--bg);}
 }
 
 .more{
-  margin-top: 0.2vh;
-  font-size: 44px;
+  margin-top: 2px;
+  font-size: clamp(16px, 2.4vw, 34px);
   font-weight: 1000;
   color: var(--muted);
-  padding-left: 0.4vw;
+  padding-left: 6px;
 }
 
-/* Footer */
+/* Footer (no clock) */
 .footer{
   background: #ffffff;
   border: 1px solid var(--line);
   border-radius: 18px;
-  padding: 0 28px;
+  padding: 0 24px;
   display:flex;
   align-items:center;
   justify-content:space-between;
   color: #6b7483;
-  font-size: 30px;
+  font-size: clamp(16px, 2.2vw, 28px);
   font-weight: 1000;
 }
 .footer .k{color:#6b7483; margin-right:10px;}
-.footer .clock{color: rgba(11,19,32,0.85); letter-spacing:1px;}
 </style>
 """
 
