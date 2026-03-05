@@ -344,10 +344,11 @@ CSS = """
   text-overflow: ellipsis;
 }
 .meta{
-  font-size: clamp(16px, 1.55vw, 24px);
+  font-size: clamp(20px, 1.8vw, 28px);
   font-weight: 1000;
-  color: var(--muted);
+  color: var(--ink);
   flex: 0 0 auto;
+  letter-spacing: 0.5px;
 }
 
 /* Footer */
