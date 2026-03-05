@@ -344,7 +344,7 @@ CSS = """
   text-overflow: ellipsis;
 }
 .meta{
-  font-size: clamp(20px, 1.8vw, 28px);
+  font-size: clamp(22px, 2vw, 32px);
   font-weight: 1000;
   color: var(--ink);
   flex: 0 0 auto;
