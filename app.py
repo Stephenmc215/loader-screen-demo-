@@ -345,7 +345,7 @@ CSS = """
 }
 .meta{
   font-size: clamp(16px, 1.55vw, 24px);
-  font-weight: 900;
+  font-weight: 1000;
   color: var(--muted);
   flex: 0 0 auto;
 }
