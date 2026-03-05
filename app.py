@@ -336,7 +336,7 @@ CSS = """
   flex: 0 0 auto;
 }
 .desc{
-  font-size: clamp(16px, 1.55vw, 24px);
+  font-size: clamp(20px, 1.8vw, 28px);
   font-weight: 900;
   color: var(--ink);
   white-space: nowrap;
